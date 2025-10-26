@@ -1,17 +1,25 @@
-## FastAPI Production Template
+# PodcastHub: Distributed Podcast Recording and Production Platform
 
-A scalable and production ready boilerplate for FastAPI
+## Phase 2: Individual Service Implementation
 
-### Table of Contents
+**Student:** Abhi Kakadiya
+**Course:** CAS 735 - Microservice-Oriented Architecture
+**Services Implemented:**
+1. Media Recording & Upload Service (Port 8001)
+2. Media Processing Service (Port 8002)
 
-- [Project Overview](#project-overview)
-- [Features](#features)
-- [Installation Guide](#installation-guide)
-- [Usage Guide](#usage-guide)
-- [Advanced Usage](#advanced-usage)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
+---
+
+## Table of Contents
+
+- [Architecture Overview](#architecture-overview)
+- [Technical Dependencies](#technical-dependencies)
+- [Installation & Setup](#installation--setup)
+- [Running the Services](#running-the-services)
+- [Testing](#testing)
+- [Project Structure](#project-structure)
+- [API Documentation](#api-documentation)
+- [Design Justifications](#design-justifications)
 
 ### Project Overview
 

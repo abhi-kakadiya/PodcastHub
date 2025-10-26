@@ -1,0 +1,143 @@
+{
+  "info": {
+    "name": "Media Recording & Upload Service",
+    "description": "API collection for testing the Media Recording & Upload Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Start Recording",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.environment.set(\"recording_id\", jsonData.recording_id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"session_id\": \"session_{{$timestamp}}\",\n  \"participant_id\": \"user_test\",\n  \"media_type\": \"audio\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/recordings/start",
+          "host": ["{{base_url}}"],
+          "path": ["api", "recordings", "start"]
+        }
+      }
+    },
+    {
+      "name": "Get Recording Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/recordings/{{recording_id}}/status",
+          "host": ["{{base_url}}"],
+          "path": ["api", "recordings", "{{recording_id}}", "status"]
+        }
+      }
+    },
+    {
+      "name": "Stop Recording",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/recordings/{{recording_id}}/stop",
+          "host": ["{{base_url}}"],
+          "path": ["api", "recordings", "{{recording_id}}", "stop"]
+        }
+      }
+    },
+    {
+      "name": "Initiate Upload",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "pm.environment.set(\"upload_id\", jsonData.upload_id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"recording_id\": \"{{recording_id}}\",\n  \"session_id\": \"session_{{$timestamp}}\",\n  \"file_name\": \"test_recording.webm\",\n  \"mime_type\": \"audio/webm\",\n  \"total_chunks\": 5\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/uploads/initiate",
+          "host": ["{{base_url}}"],
+          "path": ["api", "uploads", "initiate"]
+        }
+      }
+    },
+    {
+      "name": "Upload Chunk",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {"key": "upload_id", "value": "{{upload_id}}", "type": "text"},
+            {"key": "sequence_number", "value": "0", "type": "text"},
+            {"key": "checksum", "value": "abc123", "type": "text"},
+            {"key": "chunk_file", "type": "file", "src": "/path/to/test/file"}
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/uploads/chunk",
+          "host": ["{{base_url}}"],
+          "path": ["api", "uploads", "chunk"]
+        }
+      }
+    },
+    {
+      "name": "Get Upload Progress",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/uploads/{{upload_id}}/progress",
+          "host": ["{{base_url}}"],
+          "path": ["api", "uploads", "{{upload_id}}", "progress"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8001",
+      "type": "string"
+    }
+  ]
+}

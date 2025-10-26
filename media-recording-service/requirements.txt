@@ -1,0 +1,27 @@
+# FastAPI and Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==1.10.13
+pydantic[email]==1.10.13
+
+# WebSocket
+websockets==12.0
+
+# RabbitMQ
+aio-pika==9.3.0
+aiormq==6.8.0
+
+# Utilities
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.1
+
+# Development
+black==23.11.0
+isort==5.12.0
+mypy==1.7.0

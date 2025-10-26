@@ -1,0 +1,79 @@
+{
+  "info": {
+    "name": "Media Processing Service",
+    "description": "API collection for testing the Media Processing Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Create Processing Job",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var jsonData = pm.response.json();",
+              "pm.environment.set(\"job_id\", jsonData.job_id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"session_id\": \"session_{{$timestamp}}\",\n  \"recording_ids\": [\n    \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n    \"3fa85f64-5717-4562-b3fc-2c963f66afa7\"\n  ],\n  \"output_format\": \"mp3\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/processing/jobs",
+          "host": ["{{base_url}}"],
+          "path": ["api", "processing", "jobs"]
+        }
+      }
+    },
+    {
+      "name": "Start Processing Job",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/processing/jobs/{{job_id}}/start",
+          "host": ["{{base_url}}"],
+          "path": ["api", "processing", "jobs", "{{job_id}}", "start"]
+        }
+      }
+    },
+    {
+      "name": "Get Job Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/processing/jobs/{{job_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "processing", "jobs", "{{job_id}}"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8002",
+      "type": "string"
+    }
+  ]
+}
