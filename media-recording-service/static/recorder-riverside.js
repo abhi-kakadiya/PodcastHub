@@ -482,10 +482,10 @@ async function stopRecording() {
 
 async function downloadRecordings() {
     console.log('📥 Downloading all recordings...');
-    
+
     for (const trackType of Object.keys(trackStates)) {
         const state = trackStates[trackType];
-        
+
         if (state.chunks.length === 0) {
             console.log(`No chunks for ${trackType}`);
             continue;
