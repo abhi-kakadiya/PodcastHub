@@ -128,8 +128,8 @@ class UploadService(UploadServicePort):
         if not upload:
             raise UploadNotFoundException(f"Upload {upload_id} not found")
 
-        # Calculate checksum for validation
-        calculated_checksum = hashlib.md5(chunk_data).hexdigest()
+        # Calculate checksum for validation (SHA-256 to match frontend)
+        calculated_checksum = hashlib.sha256(chunk_data).hexdigest()
         if calculated_checksum != checksum:
             raise ChunkValidationException(
                 f"Checksum mismatch: expected {checksum}, got {calculated_checksum}"
