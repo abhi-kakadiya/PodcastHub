@@ -178,9 +178,9 @@ async function processUploadQueue() {
  */
 async function uploadChunkWithRetry(blob, sequence, currentAttempt = 0) {
     if (currentAttempt >= MAX_RETRIES) {
-        log(`✗ Chunk ${sequence} failed after ${MAX_RETRIES} retries`, 'error');
-        // Re-queue with higher priority
-        uploadQueue.unshift({ blob, sequence, attempts: 0, timestamp: Date.now() });
+        log(`✗ Chunk ${sequence} PERMANENTLY FAILED after ${MAX_RETRIES} retries`, 'error');
+        log(`⚠️ Chunk ${sequence} will not be re-queued. Please check server logs.`, 'error');
+        // DON'T re-queue - this causes infinite loops
         return;
     }
 
@@ -191,12 +191,12 @@ async function uploadChunkWithRetry(blob, sequence, currentAttempt = 0) {
         // Calculate checksum
         const checksum = await calculateChecksum(blob);
 
-        // Create form data
+        // Create form data - IMPORTANT: blob needs filename for FastAPI UploadFile
         const formData = new FormData();
-        formData.append('upload_id', uploadId);
-        formData.append('sequence_number', sequence);
+        formData.append('upload_id', String(uploadId));  // Convert to string
+        formData.append('sequence_number', String(sequence));  // Convert to string
         formData.append('checksum', checksum);
-        formData.append('chunk_file', blob);
+        formData.append('chunk_file', blob, `chunk_${sequence}.webm`);  // Add filename!
 
         const response = await fetch(`${API_URL}/uploads/chunk`, {
             method: 'POST',
@@ -205,7 +205,15 @@ async function uploadChunkWithRetry(blob, sequence, currentAttempt = 0) {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Get detailed error message from server
+            let errorDetail = response.statusText;
+            try {
+                const errorData = await response.json();
+                errorDetail = errorData.detail || errorDetail;
+            } catch (e) {
+                // Response not JSON, use statusText
+            }
+            throw new Error(`HTTP ${response.status}: ${errorDetail}`);
         }
 
         log(`✓ Chunk ${sequence} uploaded successfully`, 'success');
