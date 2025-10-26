@@ -484,6 +484,8 @@ async function startRecording() {
 
         updateStatus('🔴 Recording...');
         document.getElementById('startBtn').disabled = true;
+        document.getElementById('pauseBtn').disabled = false;
+        document.getElementById('pauseBtn').style.display = 'inline-block';
         document.getElementById('stopBtn').disabled = false;
 
         log('✓ Local recording started - chunks will upload progressively', 'success');
@@ -593,6 +595,87 @@ async function stopRecording() {
 
     } catch (error) {
         log(`❌ Error stopping: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Pause recording
+ */
+async function pauseRecording() {
+    if (!mediaRecorder || !recordingId) return;
+
+    try {
+        log('⏸️ Pausing recording...');
+
+        // Pause local MediaRecorder
+        if (mediaRecorder.state === 'recording') {
+            mediaRecorder.pause();
+        }
+
+        // Pause recording on server
+        const response = await fetch(`${API_URL}/recordings/${recordingId}/pause`, {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to pause recording: ${response.statusText}`);
+        }
+
+        log('✓ Recording paused', 'success');
+        updateStatus('⏸️ Paused');
+
+        // Update buttons
+        document.getElementById('pauseBtn').style.display = 'none';
+        document.getElementById('resumeBtn').style.display = 'inline-block';
+        document.getElementById('resumeBtn').disabled = false;
+
+        // Stop duration timer while paused
+        if (durationInterval) {
+            clearInterval(durationInterval);
+            durationInterval = null;
+        }
+
+    } catch (error) {
+        log(`❌ Error pausing: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Resume recording
+ */
+async function resumeRecording() {
+    if (!mediaRecorder || !recordingId) return;
+
+    try {
+        log('▶️ Resuming recording...');
+
+        // Resume local MediaRecorder
+        if (mediaRecorder.state === 'paused') {
+            mediaRecorder.resume();
+        }
+
+        // Resume recording on server
+        const response = await fetch(`${API_URL}/recordings/${recordingId}/resume`, {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to resume recording: ${response.statusText}`);
+        }
+
+        log('✓ Recording resumed', 'success');
+        updateStatus('🔴 Recording...');
+
+        // Update buttons
+        document.getElementById('resumeBtn').style.display = 'none';
+        document.getElementById('pauseBtn').style.display = 'inline-block';
+        document.getElementById('pauseBtn').disabled = false;
+
+        // Restart duration timer
+        durationInterval = setInterval(updateDuration, 1000);
+
+    } catch (error) {
+        log(`❌ Error resuming: ${error.message}`, 'error');
     }
 }
 

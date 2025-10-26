@@ -83,6 +83,15 @@
             color: white;
         }
 
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-warning:hover:not(:disabled) {
+            background: #d97706;
+        }
+
         .status {
             background: #f3f4f6;
             padding: 20px;
@@ -208,6 +217,12 @@
         <div class="controls">
             <button class="btn-primary" id="startBtn" onclick="startRecording()">
                 🔴 Start Recording
+            </button>
+            <button class="btn-warning" id="pauseBtn" onclick="pauseRecording()" disabled>
+                ⏸️ Pause
+            </button>
+            <button class="btn-success" id="resumeBtn" onclick="resumeRecording()" disabled style="display: none;">
+                ▶️ Resume
             </button>
             <button class="btn-danger" id="stopBtn" onclick="stopRecording()" disabled>
                 ⏹️ Stop Recording

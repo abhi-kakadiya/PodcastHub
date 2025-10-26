@@ -149,6 +149,114 @@ async def stop_recording(
         )
 
 
+@router.post(
+    "/{recording_id}/pause",
+    response_model=RecordingResponse,
+    responses={
+        200: {"description": "Recording paused successfully"},
+        404: {"model": ErrorResponse, "description": "Recording not found"},
+        400: {"model": ErrorResponse, "description": "Invalid state transition"},
+    },
+    summary="Pause a recording",
+    description="Pauses an active recording. Meeting continues but recording stops.",
+)
+async def pause_recording(
+    recording_id: UUID,
+    service: RecordingServicePort = Depends(get_recording_service),
+):
+    """
+    Pause a recording.
+
+    This endpoint:
+    1. Pauses the recording
+    2. Publishes a RecordingPaused event to RabbitMQ
+    """
+    try:
+        recording = await service.pause_recording(recording_id)
+
+        return RecordingResponse(
+            recording_id=recording.recording_id,
+            session_id=recording.session_id,
+            participant_id=recording.participant_id,
+            status=recording.status,
+            media_type=recording.media_type,
+            started_at=recording.started_at,
+            ended_at=recording.ended_at,
+            created_at=recording.created_at,
+            duration_seconds=recording.duration_seconds(),
+        )
+
+    except RecordingNotFoundException:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found",
+        )
+    except InvalidRecordingStateException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to pause recording: {str(e)}",
+        )
+
+
+@router.post(
+    "/{recording_id}/resume",
+    response_model=RecordingResponse,
+    responses={
+        200: {"description": "Recording resumed successfully"},
+        404: {"model": ErrorResponse, "description": "Recording not found"},
+        400: {"model": ErrorResponse, "description": "Invalid state transition"},
+    },
+    summary="Resume a paused recording",
+    description="Resumes a paused recording. Recording continues from where it was paused.",
+)
+async def resume_recording(
+    recording_id: UUID,
+    service: RecordingServicePort = Depends(get_recording_service),
+):
+    """
+    Resume a paused recording.
+
+    This endpoint:
+    1. Resumes the recording
+    2. Publishes a RecordingResumed event to RabbitMQ
+    """
+    try:
+        recording = await service.resume_recording(recording_id)
+
+        return RecordingResponse(
+            recording_id=recording.recording_id,
+            session_id=recording.session_id,
+            participant_id=recording.participant_id,
+            status=recording.status,
+            media_type=recording.media_type,
+            started_at=recording.started_at,
+            ended_at=recording.ended_at,
+            created_at=recording.created_at,
+            duration_seconds=recording.duration_seconds(),
+        )
+
+    except RecordingNotFoundException:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found",
+        )
+    except InvalidRecordingStateException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to resume recording: {str(e)}",
+        )
+
+
 @router.get(
     "/{recording_id}",
     response_model=RecordingResponse,
