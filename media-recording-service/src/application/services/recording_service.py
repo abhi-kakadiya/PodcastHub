@@ -14,7 +14,7 @@ from src.application.ports.outbound import (
     UploadRepositoryPort,
     EventPublisherPort,
 )
-from src.domain.models import Recording, RecordingStatus
+from src.domain.models import Recording, RecordingStatus, TrackType
 from src.domain.events import RecordingStarted, RecordingEnded, RecordingFailed
 from src.domain.exceptions import (
     RecordingNotFoundException,
@@ -68,8 +68,6 @@ class RecordingService(RecordingServicePort):
         3. Persists the recording
         4. Publishes a RecordingStarted event
         """
-        from src.domain.models import TrackType
-
         # Create recording aggregate
         recording = Recording(
             session_id=session_id,
