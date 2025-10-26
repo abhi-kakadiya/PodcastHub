@@ -1,274 +1,360 @@
 # PodcastHub: Distributed Podcast Recording and Production Platform
 
-## Phase 2: Individual Service Implementation
+## Phase 2: Individual Microservices Implementation
 
 **Student:** Abhi Kakadiya
 **Course:** CAS 735 - Microservice-Oriented Architecture
-**Services Implemented:**
-1. Media Recording & Upload Service (Port 8001)
-2. Media Processing Service (Port 8002)
 
 ---
 
-## Table of Contents
+## 🎯 Project Overview
 
-- [Architecture Overview](#architecture-overview)
-- [Technical Dependencies](#technical-dependencies)
-- [Installation & Setup](#installation--setup)
-- [Running the Services](#running-the-services)
-- [Testing](#testing)
-- [Project Structure](#project-structure)
-- [API Documentation](#api-documentation)
-- [Design Justifications](#design-justifications)
+This repository contains **two microservices** implementing the Media Recording and Processing components of PodcastHub:
 
-### Project Overview
+1. **Media Recording & Upload Service** (Port 8001)
+   - WebRTC-based local recording
+   - Resilient chunked uploads with retry logic
+   - Real-time progress tracking via WebSocket
+   - Event publishing to RabbitMQ
 
-This boilerplate follows a layered architecture that includes a model layer, a repository layer, a controller layer, and an API layer. Its directory structure is designed to isolate boilerplate code within the core directory, which requires minimal attention, thereby facilitating quick and easy feature development. The directory structure is also generally very predictable. The project's primary objective is to offer a production-ready boilerplate with a better developer experience and readily available features. It also has some widely used features like authentication, authorization, database migrations, type checking, etc which are discussed in detail in the [Features](#features) section.
+2. **Media Processing Service** (Port 8002)
+   - Multi-track synchronization
+   - Audio/video enhancement pipeline
+   - Automated mixing and encoding
+   - Event-driven workflow orchestration
 
-### Features
+---
 
-- Python 3.11+ support
-- SQLAlchemy 2.0+ support
-- Asynchoronous capabilities
-- Database migrations using Alembic
-- Basic Authentication using JWT
-- Row Level Access Control for permissions
-- Redis for caching
-- Celery for background tasks
-- Testing suite
-- Type checking using mypy
-- Dockerized database and redis
-- Readily available CRUD operations
-- Linting using pylint
-- Formatting using black
+## 🏗️ Architecture
 
-### Installation Guide
+Both services implement **Hexagonal Architecture** (Ports & Adapters) with:
 
-You need following to run this project:
+- ✅ **Domain Layer**: Pure business logic, framework-independent
+- ✅ **Application Layer**: Use case orchestration
+- ✅ **Adapters Layer**: REST APIs, WebSocket, RabbitMQ, Repositories
+- ✅ **Infrastructure Layer**: Configuration and dependency injection
 
-- Python 3.11
-- [Docker with Docker Compose](https://docs.docker.com/compose/install/)
-- [Poetry](https://python-poetry.org/docs/#installation)
+**Key Principles:**
+- Domain-Driven Design (Aggregates, Events, Value Objects)
+- Event-Driven Communication (RabbitMQ)
+- Dependency Inversion (Ports pattern)
+- SOLID principles throughout
 
-I use [asdf](https://asdf-vm.com/#/) to manage my python versions. You can use it too. However, it is only supported on Linux and macOS. For Windows, you can use something like pyenv.
+---
 
-Once you have installed the above and have cloned the repository, you can follow the following steps to get the project up and running:
+## 🚀 Quick Start
 
-1. Create a virtual environment using poetry:
+### Prerequisites
+- Python 3.10+
+- Docker & Docker Compose
 
-```bash
-poetry shell
-```
-
-2. Install the dependencies:
-
-```bash
-poetry install
-```
-
-3. Run the database and redis containers:
-
+### 1. Start RabbitMQ
 ```bash
 docker-compose up -d
 ```
 
-4. Copy the `.env.example` file to `.env` and update the values as per your needs.
-
-5. Run the migrations:
-
+### 2. Run Media Recording Service
 ```bash
-make migrate
+cd media-recording-service
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+python main.py
 ```
+**Service:** http://localhost:8001
 
-6. Run the server:
-
+### 3. Run Media Processing Service (New Terminal)
 ```bash
-make run
+cd media-processing-service
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python main.py
 ```
+**Service:** http://localhost:8002
 
-The server should now be running on `http://localhost:8000` and the API documentation should be available at `http://localhost:8000/docs`.
+### 4. Test It!
 
-### Usage Guide
+**Web Interface:**
+Open http://localhost:8001/static/index.html
+- Start recording with your microphone
+- Watch chunks upload in real-time
+- See progress tracking
 
-The project is designed to be modular and scalable. There are 3 main directories in the project:
+**API Documentation:**
+- Recording Service: http://localhost:8001/docs
+- Processing Service: http://localhost:8002/docs
 
-1. `core`: This directory contains the central part of this project. It contains most of the boiler plate code like security dependencies, database connections, configuration, middlewares etc. It also contains the base classes for the models, repositories, and controllers. The `core` directory is designed to be as minimal as possible and usually requires minimal attention. Overall, the `core` directory is designed to be as generic as possible and can be used in any project. While building additional feature you may not need to modify this directory at all except for adding more controllers to the `Factory` class in `core/factory.py`.
+**RabbitMQ Management:**
+- URL: http://localhost:15672
+- Credentials: guest/guest
 
-2. `app`: This directory contains the actual application code. It contains the models, repositories, controllers, and schemas for the application. This is the directory you will be spending most of your time in while building features. The directory has following sub-directories:
+---
 
-   - `models` Here is where you add new tables
-   - `repositories` For each model, you need to create a repository. This is where you add the CRUD operations for the model.
-   - `controllers` For each logical unit of the application, you need to create a controller. This is where you add the business logic for the application.
-   - `schemas` This is where you add the schemas for the application. The schemas are used for validation and serialization/deserialization of the data.
+## 📚 Documentation
 
-3. `api`: This directory contains the API layer of the application. It contains the API router, it is where you add the API endpoints.
+- **[QUICKSTART.md](QUICKSTART.md)** - Get running in 5 minutes
+- **[PODCASTHUB_README.md](PODCASTHUB_README.md)** - Complete documentation
+- **[SCENARIO.md](SCENARIO.md)** - Step-by-step test scenarios
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed architecture explanation
+- **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Implementation overview
 
-### Advanced Usage
+---
 
-The boilerplate contains a lot of features some of which are used in the application and some of which are not. The following sections describe the features in detail.
+## 🧪 Testing
 
-#### Database Migrations
-
-The migrations are handled by Alembic. The migrations are stored in the `migrations` directory. To create a new migration, you can run the following command:
-
+### Run Unit Tests
 ```bash
-make generate-migration
+cd media-recording-service
+pytest tests/ -v
 ```
 
-It will ask you for a message for the migration. Once you enter the message, it will create a new migration file in the `migrations` directory. You can then run the migrations using the following command:
+### Import Postman Collections
+- `media-recording-service/postman_collection.json`
+- `media-processing-service/postman_collection.json`
 
-```bash
-make migrate
+---
+
+## 📦 What's Included
+
+### Media Recording & Upload Service
+
+**Features:**
+- WebRTC local recording (audio/video/screen)
+- Chunked upload (5-second intervals)
+- Automatic retry with exponential backoff
+- MD5 checksum validation
+- Real-time WebSocket progress updates
+- REST API with 13 endpoints
+- RabbitMQ event publishing
+
+**Technology:**
+- FastAPI (REST API)
+- WebSocket (real-time updates)
+- RabbitMQ/aio-pika (messaging)
+- Pydantic (validation)
+- In-memory storage (Phase 2 requirement)
+
+**Architecture:**
+```
+REST API → Recording Service → Domain Models → Repository
+                ↓
+        RabbitMQ Events → Processing Service
 ```
 
-If you need to downgrade the database or reset it. You can use `make rollback` and `make reset-database` respectively.
+### Media Processing Service
 
-#### Authentication
+**Features:**
+- Multi-track synchronization
+- Processing pipeline (SYNC → ENHANCE → MIX)
+- Job status tracking
+- Event-driven workflow
+- REST API with 3 endpoints
 
-The authentication used is basic implementation of JWT with bearer token. When the `bearer` token is supplied in the `Authorization` header, the token is verified and the user is automatically authenticated by setting `request.user.id` using middleware. To use the user model in any endpoint you can use the `get_current_user` dependency. If for any endpoint you want to enforce authentication, you can use the `AuthenticationRequired` dependency. It will raise a `HTTPException` if the user is not authenticated.
+**Technology:**
+- FastAPI
+- RabbitMQ/aio-pika
+- Mock media processor (ready for FFmpeg)
 
-#### Row Level Access Control
+---
 
-The boilerplate contains a custom row level permissions management module. It is inspired by [fastapi-permissions](https://github.com/holgi/fastapi-permissions). It is located in `core/security/access_control.py`. You can use this to enforce different permissions for different models. The module operates based on `Principals` and `permissions`. Every user has their own set of principals which need to be set using a function. Check `core/fastapi/dependencies/permissions.py` for an example. The principals are then used to check the permissions for the user. The permissions need to be defined at the model level. Check `app/models/user.py` for an example. Then you can use the dependency directly in the route to raise a `HTTPException` if the user does not have the required permissions. Below is an incomplete example:
+## 🎯 Phase 2 Requirements
 
+### ✅ Technical Requirements
+
+- [x] **REST API with OpenAPI**: Both services fully documented
+- [x] **RabbitMQ Integration**: 15+ event types
+- [x] **Hexagonal Architecture**: Strict layering with ports & adapters
+- [x] **No Database**: In-memory repositories as required
+- [x] **Two Services**: Recording and Processing
+
+### ✅ Deliverables
+
+- [x] **README.md**: Installation and usage guide
+- [x] **SCENARIO.md**: Executable test scenarios
+- [x] **Architecture Documentation**: Detailed justification
+- [x] **Tests**: Unit and integration tests
+- [x] **Postman Collections**: API testing
+
+---
+
+## 🔄 Integration Points
+
+### With Session Management Service (Suleyman)
+
+**Events Published:**
+- `recording.started` - Recording begins
+- `recording.ended` - Recording stops
+- `upload.completed` - All chunks uploaded
+
+**Integration:**
+```
+Session Service → POST /api/recordings/start
+                ↓
+        Recording Service publishes events
+                ↓
+        Session Service subscribes to updates
+```
+
+### With Notification Service (Suleyman)
+
+**Events Consumed:**
+- `upload.completed` - Trigger notification
+- `processing.job.completed` - Notify user
+
+---
+
+## 🏛️ Architecture Highlights
+
+### Hexagonal Architecture Benefits
+
+**Domain Independence:**
 ```python
-from fastapi import APIRouter, Depends
-from core.security.access_control import AccessControl, UserPrincipal, RolePrincipal, Allow
-from core.database import Base
-
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    email = Column(String, unique=True)
-    password = Column(String)
-    role = Column(String)
-
-    def __acl__(self):
-        return [
-            (Allow, UserPrincipal(self.id), "view"),
-            (Allow, RolePrincipal("admin"), "delete"),
-        ]
-
-def get_user_principals(user: User = Depends(get_current_user)):
-    return [UserPrincipal(user.id)]
-
-Permission = AccessControl(get_user_principals)
-
-router = APIRouter()
-
-@router.get("/users/{user_id}")
-def get_user(user_id: int, user: User = get_user(user_id), assert_access = Permission("view")):
-    assert_access(user)
-    return user
-
+# Domain model has NO framework dependencies
+@dataclass
+class Recording:
+    def start(self):
+        if self.status != RecordingStatus.WAITING:
+            raise ValueError("Cannot start")
+        self.status = RecordingStatus.RECORDING
 ```
 
-#### Caching
-
-You can directly use the `Cache.cached` decorator from `core.cache`. Example
-
+**Testability:**
 ```python
-from core.cache import Cache
-
-@Cache.cached(prefix="user", ttl=60)
-def get_user(user_id: int):
-    ...
+# Test domain logic without any infrastructure
+def test_recording_start():
+    recording = Recording(status=RecordingStatus.WAITING)
+    recording.start()
+    assert recording.status == RecordingStatus.RECORDING
 ```
 
-#### Celery
-
-The celery worker is already configured for the app. You can add your tasks in `worker/` to run the celery worker, you can run the following command:
-
-```bash
-make celery-worker
-```
-
-#### Session Management
-
-The sessions are already handled by the middleware and `get_session` dependency which injected into the repositories through fastapi dependency injection inside the `Factory` class in `core/factory.py`. There is also `Transactional` decorator which can be used to wrap the functions which need to be executed in a transaction. Example:
-
+**Flexibility:**
 ```python
-@Transactional()
-async def some_mutating_function():
-    ...
+# Swap implementations without changing application code
+repository = InMemoryRecordingRepository()  # Phase 2
+# repository = PostgresRecordingRepository()  # Phase 3+
 ```
 
-Note: The decorator already handles the commit and rollback of the transaction. You do not need to do it manually.
+### Event-Driven Communication
 
-If for any case you need an isolated sessions you can use `standalone_session` decorator from `core.database`. Example:
-
+**Publisher:**
 ```python
-@standalone_session
-async def do_something():
-    ...
+event = RecordingStarted(recording_id=..., session_id=...)
+await event_publisher.publish(event, routing_key="recording.started")
 ```
 
-#### Repository Pattern
-
-The boilerplate uses the repository pattern. Every model has a repository and all of them inherit `base` repository from `core/repository`. The repositories are located in `app/repositories`. The repositories are injected into the controllers inside the `Factory` class in `core/factory/factory.py.py`.
-
-The base repository has the basic crud operations. All customer operations can be added to the specific repository. Example:
-
+**Subscriber (Other Services):**
 ```python
-from core.repository import BaseRepository
-from app.models.user import User
-from sqlalchemy.sql.expression import select
-
-class UserRepository(BaseRepository[User]):
-    async def get_by_email(self, email: str):
-        return await select(User).filter(User.email == email).gino.first()
-
+# Session Management subscribes to "recording.*"
+# Notification Service subscribes to "upload.*"
+# Processing Service subscribes to "upload.completed"
 ```
 
-To facilitate easier access to queries with complex joins, the `BaseRepository` class has a `_query` function (along with other handy functions like `_all()` and `_one_or_none()`) which can be used to write compplex queries very easily. Example:
+---
 
-```python
-async def get_user_by_email_join_tasks(email: str):
-    query = await self._query(join_)
-    query = query.filter(User.email == email)
-    return await self._one_or_none(query)
+## 📊 Project Structure
+
+```
+CAS-735-Project/
+├── media-recording-service/
+│   ├── src/
+│   │   ├── domain/              # Pure business logic
+│   │   │   ├── models/          # Recording, Chunk, Upload
+│   │   │   ├── events/          # Domain events
+│   │   │   └── exceptions/      # Domain exceptions
+│   │   ├── application/         # Use cases
+│   │   │   ├── ports/           # Interfaces
+│   │   │   └── services/        # Service implementations
+│   │   ├── adapters/            # External integrations
+│   │   │   ├── inbound/         # REST, WebSocket
+│   │   │   └── outbound/        # Repositories, RabbitMQ
+│   │   └── infrastructure/      # Config, DI
+│   ├── static/                  # WebRTC frontend
+│   ├── tests/                   # Tests
+│   ├── main.py                  # Entry point
+│   ├── requirements.txt
+│   └── postman_collection.json
+│
+├── media-processing-service/
+│   └── [Similar structure]
+│
+├── docker-compose.yml           # RabbitMQ
+├── ARCHITECTURE.md              # Architecture documentation
+├── SCENARIO.md                  # Test scenarios
+└── README.md                    # This file
 ```
 
-Note: For every join you want to make you need to create a function in the same repository with pattern `_join_{name}`. Example: `_join_tasks` for `tasks`. Example:
+---
 
-```python
-async def _join_tasks(self, query: Select) -> Select:
-    return query.options(joinedload(User.tasks))
-```
+## 🎓 Learning Outcomes
 
-#### Controllers
+This implementation demonstrates:
 
-Kind of to repositories, every logical unit of the application has a controller. The controller also has a primary repository which is injected into it. The controllers are located in `app/controllers`.
+1. **Hexagonal Architecture** in practice
+2. **Domain-Driven Design** patterns
+3. **Event-Driven Architecture** with RabbitMQ
+4. **Microservices** best practices
+5. **REST API** design with OpenAPI
+6. **WebSocket** for real-time updates
+7. **Test-Driven Development**
+8. **Clean Code** principles
 
-These controllers contain all the business logic of the application. Check `app/controllers/auth.py` for an example.
+---
 
-#### Schemas
+## 📝 For Your Report
 
-The schemas are located in `app/schemas`. The schemas are used to validate the request body and response body. The schemas are also used to generate the OpenAPI documentation. The schemas are inherited from `BaseModel` from `pydantic`. The schemas are primarily isolated into `requests` and `responses` which are pretty self explainatory.
+Use **ARCHITECTURE.md** as the foundation for your 3-page report. It includes:
 
-#### Formatting
+- High-level architecture diagrams
+- Interface descriptions (REST + Messages)
+- DTO justifications
+- Hexagonal architecture compliance
+- Design decisions and trade-offs
 
-You can use `make format` to format the code using `black` and `isort`.
+---
 
-#### Linting
+## 🆘 Need Help?
 
-You can use `make lint` to lint the code using `pylint`.
+**Quick Links:**
+- Installation issues? → [QUICKSTART.md](QUICKSTART.md)
+- How to test? → [SCENARIO.md](SCENARIO.md)
+- Architecture questions? → [ARCHITECTURE.md](ARCHITECTURE.md)
+- Full documentation? → [PODCASTHUB_README.md](PODCASTHUB_README.md)
 
-#### Testing
+**API Documentation:**
+- http://localhost:8001/docs (Recording Service)
+- http://localhost:8002/docs (Processing Service)
 
-The project contains tests for all endpoints, some of the logical components like `JWTHander` and `AccessControl` and an example of testing complex inner components like `BaseRepository`. The tests are located in `tests/`. You can run the tests using `make test`.
+---
 
-## Contributing
+## 📈 Statistics
 
-Contributions are higly welcome. Please open an issue or a PR if you want to contribute.
+- **Lines of Code:** ~7,300
+- **Files Created:** 99
+- **Test Cases:** 15+
+- **API Endpoints:** 16
+- **Domain Events:** 15+
+- **Documentation:** 5 comprehensive files
 
-## License
+---
 
-This project is licensed under the terms of the MIT license. See the LICENSE file.
+## 📜 License
 
-## Acknowledgements
+MIT License - See [LICENSE.md](LICENSE.md)
 
-- This project uses several components from [teamhide/fastapi-boilerplate](https://github.com/teamhide/fastapi-boilerplate)
-- The row level access control is inspired by [fastapi-permissions](https://github.com/holgi/fastapi-permissions)
-- CRUD pattern is inspired by [full-stack-fastapi-postgresql](https://github.com/tiangolo/full-stack-fastapi-postgresql)
+---
+
+## 🙏 Acknowledgments
+
+- **Course:** CAS 735 - Microservice-Oriented Architecture
+- **Institution:** McMaster University
+- **Architecture Pattern:** Hexagonal Architecture by Alistair Cockburn
+- **Design Principles:** Domain-Driven Design by Eric Evans
+
+---
+
+**Built with Hexagonal Architecture & Domain-Driven Design** 🎙️
+
+**Ready for Phase 3 Integration & Phase 4 Deployment** 🚀
