@@ -133,6 +133,78 @@ class RecordingService(RecordingServicePort):
 
         return recording
 
+    async def pause_recording(self, recording_id: UUID) -> Recording:
+        """
+        Pause an active recording.
+
+        This method:
+        1. Retrieves the recording
+        2. Calls the domain method to pause recording
+        3. Persists the updated recording
+        4. Publishes a RecordingPaused event
+        """
+        # Retrieve recording
+        recording = await self._recording_repository.find_by_id(recording_id)
+        if not recording:
+            raise RecordingNotFoundException(f"Recording {recording_id} not found")
+
+        # Use domain logic to pause recording
+        try:
+            recording.pause()
+        except ValueError as e:
+            raise InvalidRecordingStateException(str(e))
+
+        # Persist the updated recording
+        recording = await self._recording_repository.save(recording)
+
+        # Publish domain event
+        from src.domain.events import RecordingPaused
+        event = RecordingPaused(
+            recording_id=recording.recording_id,
+            session_id=recording.session_id,
+            participant_id=recording.participant_id,
+            paused_at=recording.paused_at,
+        )
+        await self._event_publisher.publish(event, routing_key="recording.paused")
+
+        return recording
+
+    async def resume_recording(self, recording_id: UUID) -> Recording:
+        """
+        Resume a paused recording.
+
+        This method:
+        1. Retrieves the recording
+        2. Calls the domain method to resume recording
+        3. Persists the updated recording
+        4. Publishes a RecordingResumed event
+        """
+        # Retrieve recording
+        recording = await self._recording_repository.find_by_id(recording_id)
+        if not recording:
+            raise RecordingNotFoundException(f"Recording {recording_id} not found")
+
+        # Use domain logic to resume recording
+        try:
+            recording.resume()
+        except ValueError as e:
+            raise InvalidRecordingStateException(str(e))
+
+        # Persist the updated recording
+        recording = await self._recording_repository.save(recording)
+
+        # Publish domain event
+        from src.domain.events import RecordingResumed
+        event = RecordingResumed(
+            recording_id=recording.recording_id,
+            session_id=recording.session_id,
+            participant_id=recording.participant_id,
+            resumed_at=recording.resumed_at,
+        )
+        await self._event_publisher.publish(event, routing_key="recording.resumed")
+
+        return recording
+
     async def get_recording(self, recording_id: UUID) -> Optional[Recording]:
         """Get a recording by ID"""
         return await self._recording_repository.find_by_id(recording_id)

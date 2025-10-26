@@ -74,6 +74,60 @@ class RecordingEnded(DomainEvent):
 
 
 @dataclass
+class RecordingPaused(DomainEvent):
+    """
+    Event emitted when a recording is paused.
+
+    Allows the meeting to continue while recording is paused.
+    """
+
+    recording_id: UUID = None
+    session_id: str = ""
+    participant_id: str = ""
+    paused_at: datetime = None
+
+    def __post_init__(self):
+        self.event_type = "recording.paused"
+        self.aggregate_id = self.recording_id
+
+    def to_dict(self) -> dict:
+        base = super().to_dict()
+        base.update({
+            "recording_id": str(self.recording_id),
+            "session_id": self.session_id,
+            "participant_id": self.participant_id,
+            "paused_at": self.paused_at.isoformat() if self.paused_at else None,
+        })
+        return base
+
+
+@dataclass
+class RecordingResumed(DomainEvent):
+    """
+    Event emitted when a recording is resumed after pause.
+    """
+
+    recording_id: UUID = None
+    session_id: str = ""
+    participant_id: str = ""
+    resumed_at: datetime = None
+
+    def __post_init__(self):
+        self.event_type = "recording.resumed"
+        self.aggregate_id = self.recording_id
+
+    def to_dict(self) -> dict:
+        base = super().to_dict()
+        base.update({
+            "recording_id": str(self.recording_id),
+            "session_id": self.session_id,
+            "participant_id": self.participant_id,
+            "resumed_at": self.resumed_at.isoformat() if self.resumed_at else None,
+        })
+        return base
+
+
+@dataclass
 class RecordingFailed(DomainEvent):
     """Event emitted when a recording fails"""
 
