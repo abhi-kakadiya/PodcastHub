@@ -1,12 +1,13 @@
 version: '3.8'
 
 services:
+  # RabbitMQ - Message Broker
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: podcathub_rabbitmq
+    container_name: podcasthub_rabbitmq
     ports:
       - "5672:5672"   # AMQP protocol port
-      - "15672:15672" # Management UI
+      - "15672:15672" # Management UI (http://localhost:15672)
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
@@ -17,7 +18,76 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - podcasthub
+
+  # MinIO - S3-Compatible Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: podcasthub_minio
+    ports:
+      - "9000:9000"   # API port
+      - "9001:9001"   # Console UI (http://localhost:9001)
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - podcasthub
+
+  # PostgreSQL - Database (for storing metadata)
+  postgres:
+    image: postgres:15-alpine
+    container_name: podcasthub_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: podcasthub
+      POSTGRES_PASSWORD: podcasthub123
+      POSTGRES_DB: podcasthub
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U podcasthub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - podcasthub
+
+  # Redis - Caching & Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: podcasthub_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - podcasthub
 
 volumes:
   rabbitmq_data:
     driver: local
+  minio_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  podcasthub:
+    driver: bridge
