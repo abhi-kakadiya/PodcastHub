@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.application.ports.inbound import ProcessingServicePort
+from src.application.ports.inbound.processing_service_port import ProcessingServicePort
 
 
 router = APIRouter(prefix="/api/processing", tags=["processing"])
