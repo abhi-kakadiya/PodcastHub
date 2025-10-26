@@ -68,7 +68,7 @@ async def start_recording(
         recording = await service.start_recording(
             session_id=request.session_id,
             participant_id=request.participant_id,
-            media_type=request.media_type,
+            track_type=request.track_type,
         )
 
         return RecordingResponse(
@@ -76,7 +76,7 @@ async def start_recording(
             session_id=recording.session_id,
             participant_id=recording.participant_id,
             status=recording.status,
-            media_type=recording.media_type,
+            track_type=recording.track_type.value,
             started_at=recording.started_at,
             ended_at=recording.ended_at,
             created_at=recording.created_at,
@@ -125,7 +125,7 @@ async def stop_recording(
             session_id=recording.session_id,
             participant_id=recording.participant_id,
             status=recording.status,
-            media_type=recording.media_type,
+            track_type=recording.track_type.value,
             started_at=recording.started_at,
             ended_at=recording.ended_at,
             created_at=recording.created_at,
@@ -179,7 +179,7 @@ async def pause_recording(
             session_id=recording.session_id,
             participant_id=recording.participant_id,
             status=recording.status,
-            media_type=recording.media_type,
+            track_type=recording.track_type.value,
             started_at=recording.started_at,
             ended_at=recording.ended_at,
             created_at=recording.created_at,
@@ -233,7 +233,7 @@ async def resume_recording(
             session_id=recording.session_id,
             participant_id=recording.participant_id,
             status=recording.status,
-            media_type=recording.media_type,
+            track_type=recording.track_type.value,
             started_at=recording.started_at,
             ended_at=recording.ended_at,
             created_at=recording.created_at,
@@ -346,7 +346,7 @@ async def get_session_recordings(
             session_id=rec.session_id,
             participant_id=rec.participant_id,
             status=rec.status,
-            media_type=rec.media_type,
+            track_type=rec.track_type.value,
             started_at=rec.started_at,
             ended_at=rec.ended_at,
             created_at=rec.created_at,

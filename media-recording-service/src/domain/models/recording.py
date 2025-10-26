@@ -21,6 +21,13 @@ class RecordingStatus(str, Enum):
     FAILED = "failed"
 
 
+class TrackType(str, Enum):
+    """Track type enumeration for multi-track recording"""
+    AUDIO = "audio"  # Audio-only track (microphone)
+    VIDEO = "video"  # Video track (camera + microphone)
+    SCREEN = "screen"  # Screen share track (screen + audio)
+
+
 @dataclass
 class Recording:
     """
@@ -35,7 +42,7 @@ class Recording:
     session_id: str = ""
     participant_id: str = ""
     status: RecordingStatus = RecordingStatus.WAITING
-    media_type: str = "audio"  # audio, video, screen
+    track_type: TrackType = TrackType.AUDIO  # Type of media track
     started_at: Optional[datetime] = None
     paused_at: Optional[datetime] = None
     resumed_at: Optional[datetime] = None

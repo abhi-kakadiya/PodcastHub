@@ -57,7 +57,7 @@ class RecordingService(RecordingServicePort):
         self,
         session_id: str,
         participant_id: str,
-        media_type: str = "audio",
+        track_type: str = "audio",
     ) -> Recording:
         """
         Start a new recording session.
@@ -68,11 +68,13 @@ class RecordingService(RecordingServicePort):
         3. Persists the recording
         4. Publishes a RecordingStarted event
         """
+        from src.domain.models import TrackType
+
         # Create recording aggregate
         recording = Recording(
             session_id=session_id,
             participant_id=participant_id,
-            media_type=media_type,
+            track_type=TrackType(track_type),
             status=RecordingStatus.WAITING,
         )
 
@@ -90,7 +92,7 @@ class RecordingService(RecordingServicePort):
             recording_id=recording.recording_id,
             session_id=recording.session_id,
             participant_id=recording.participant_id,
-            media_type=recording.media_type,
+            media_type=recording.track_type.value,
             started_at=recording.started_at,
         )
         await self._event_publisher.publish(event, routing_key="recording.started")
@@ -232,7 +234,7 @@ class RecordingService(RecordingServicePort):
             "session_id": recording.session_id,
             "participant_id": recording.participant_id,
             "status": recording.status.value,
-            "media_type": recording.media_type,
+            "track_type": recording.track_type.value,
             "started_at": recording.started_at.isoformat() if recording.started_at else None,
             "ended_at": recording.ended_at.isoformat() if recording.ended_at else None,
             "duration_seconds": recording.duration_seconds(),

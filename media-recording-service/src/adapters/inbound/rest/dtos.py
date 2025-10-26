@@ -20,14 +20,14 @@ class StartRecordingRequest(BaseModel):
 
     session_id: str = Field(..., description="Session ID")
     participant_id: str = Field(..., description="Participant ID")
-    media_type: str = Field(default="audio", description="Type of media (audio/video/screen)")
+    track_type: str = Field(default="audio", description="Type of media track (audio/video/screen)")
 
     class Config:
         schema_extra = {
             "example": {
                 "session_id": "session_123",
                 "participant_id": "user_456",
-                "media_type": "audio",
+                "track_type": "audio",
             }
         }
 
@@ -76,8 +76,16 @@ class RecordingStatusEnum(str, Enum):
     """Recording status enumeration"""
     WAITING = "waiting"
     RECORDING = "recording"
+    PAUSED = "paused"
     STOPPED = "stopped"
     FAILED = "failed"
+
+
+class TrackTypeEnum(str, Enum):
+    """Track type enumeration for multi-track recording"""
+    AUDIO = "audio"
+    VIDEO = "video"
+    SCREEN = "screen"
 
 
 class RecordingResponse(BaseModel):
@@ -87,7 +95,7 @@ class RecordingResponse(BaseModel):
     session_id: str
     participant_id: str
     status: RecordingStatusEnum
-    media_type: str
+    track_type: str
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
     created_at: datetime
@@ -100,7 +108,7 @@ class RecordingResponse(BaseModel):
                 "session_id": "session_123",
                 "participant_id": "user_456",
                 "status": "recording",
-                "media_type": "audio",
+                "track_type": "audio",
                 "started_at": "2025-10-26T10:00:00",
                 "ended_at": None,
                 "created_at": "2025-10-26T09:59:00",
@@ -168,7 +176,7 @@ class RecordingStatusResponse(BaseModel):
     session_id: str
     participant_id: str
     status: str
-    media_type: str
+    track_type: str
     started_at: Optional[str]
     ended_at: Optional[str]
     duration_seconds: float
@@ -181,7 +189,7 @@ class RecordingStatusResponse(BaseModel):
                 "session_id": "session_123",
                 "participant_id": "user_456",
                 "status": "stopped",
-                "media_type": "audio",
+                "track_type": "audio",
                 "started_at": "2025-10-26T10:00:00",
                 "ended_at": "2025-10-26T10:05:00",
                 "duration_seconds": 300.0,
