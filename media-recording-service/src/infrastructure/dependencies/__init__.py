@@ -15,7 +15,7 @@ from src.adapters.outbound.repository import (
     InMemoryUploadRepository,
 )
 from src.adapters.outbound.messaging import RabbitMQEventPublisher
-from src.adapters.outbound.storage import InMemoryStorage
+from src.adapters.outbound.storage import FileStorage
 from src.infrastructure.config import get_settings
 
 
@@ -24,7 +24,7 @@ _recording_repository: Optional[InMemoryRecordingRepository] = None
 _chunk_repository: Optional[InMemoryChunkRepository] = None
 _upload_repository: Optional[InMemoryUploadRepository] = None
 _event_publisher: Optional[RabbitMQEventPublisher] = None
-_storage: Optional[InMemoryStorage] = None
+_storage: Optional[FileStorage] = None
 _recording_service: Optional[RecordingService] = None
 _upload_service: Optional[UploadService] = None
 
@@ -65,11 +65,18 @@ def get_event_publisher() -> RabbitMQEventPublisher:
     return _event_publisher
 
 
-def get_storage() -> InMemoryStorage:
-    """Get or create storage instance"""
+def get_storage() -> FileStorage:
+    """
+    Get or create storage instance.
+
+    Uses FileStorage for actual file-based chunk persistence.
+    Chunks are stored in ./storage directory by default.
+    """
     global _storage
     if _storage is None:
-        _storage = InMemoryStorage()
+        settings = get_settings()
+        # Use file-based storage for production-ready chunk persistence
+        _storage = FileStorage(base_path="./storage")
     return _storage
 
 

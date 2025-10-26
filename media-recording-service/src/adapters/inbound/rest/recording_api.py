@@ -9,6 +9,8 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
+import os
 
 from src.application.ports.inbound import RecordingServicePort
 from src.domain.exceptions import (
@@ -244,3 +246,127 @@ async def get_session_recordings(
         )
         for rec in recordings
     ]
+
+
+@router.get(
+    "/{recording_id}/assembled",
+    responses={
+        200: {"description": "Assembled recording file", "content": {"video/webm": {}}},
+        404: {"model": ErrorResponse, "description": "Recording not found"},
+        500: {"model": ErrorResponse, "description": "Assembly failed"},
+    },
+    summary="Get assembled recording file",
+    description="Assembles all chunks into a single file and returns it for processing.",
+)
+async def get_assembled_recording(
+    recording_id: UUID,
+    service: RecordingServicePort = Depends(get_recording_service),
+):
+    """
+    Get assembled recording file.
+
+    This endpoint:
+    1. Checks if recording exists
+    2. Retrieves all chunks from storage
+    3. Assembles them into a single file
+    4. Returns the file for download/processing
+
+    Used by the Processing Service to retrieve completed recordings.
+    """
+    try:
+        # Check if recording exists
+        recording = await service.get_recording(recording_id)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Recording {recording_id} not found"
+            )
+
+        # Get storage instance
+        from src.infrastructure.dependencies import get_storage
+        storage = get_storage()
+
+        # Assemble chunks into a single file
+        output_dir = f"./storage/assembled"
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = f"{output_dir}/{recording_id}.webm"
+
+        assembled_path = await storage.assemble_chunks(
+            recording_id=recording_id,
+            output_path=output_path
+        )
+
+        # Return assembled file
+        return FileResponse(
+            path=assembled_path,
+            media_type="video/webm",
+            filename=f"{recording.participant_id}_{recording_id}.webm"
+        )
+
+    except RecordingNotFoundException:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to assemble recording: {str(e)}"
+        )
+
+
+@router.get(
+    "/{recording_id}/chunks",
+    response_model=dict,
+    responses={
+        200: {"description": "Chunk list retrieved successfully"},
+        404: {"model": ErrorResponse, "description": "Recording not found"},
+    },
+    summary="List all chunks for a recording",
+    description="Retrieves metadata for all chunks of a recording.",
+)
+async def list_recording_chunks(
+    recording_id: UUID,
+    service: RecordingServicePort = Depends(get_recording_service),
+):
+    """
+    List all chunks for a recording.
+
+    Returns metadata about all uploaded chunks including:
+    - Chunk ID
+    - Sequence number
+    - Size
+    - Storage path
+    """
+    try:
+        # Check if recording exists
+        recording = await service.get_recording(recording_id)
+        if not recording:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Recording {recording_id} not found"
+            )
+
+        # Get storage instance
+        from src.infrastructure.dependencies import get_storage
+        storage = get_storage()
+
+        # List chunks
+        chunks = await storage.list_chunks(recording_id)
+
+        return {
+            "recording_id": str(recording_id),
+            "total_chunks": len(chunks),
+            "chunks": chunks
+        }
+
+    except RecordingNotFoundException:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list chunks: {str(e)}"
+        )
