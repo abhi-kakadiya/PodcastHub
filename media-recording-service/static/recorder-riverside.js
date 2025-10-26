@@ -481,35 +481,38 @@ async function stopRecording() {
 // ==================== Download Recordings ====================
 
 async function downloadRecordings() {
-    console.log('📥 Preparing downloads...');
-
-    for (const trackType of Object.keys(TRACK_TYPES)) {
+    console.log('📥 Downloading all recordings...');
+    
+    for (const trackType of Object.keys(trackStates)) {
         const state = trackStates[trackType];
-
+        
         if (state.chunks.length === 0) {
-            console.log(`No chunks for ${trackType}, skipping`);
+            console.log(`No chunks for ${trackType}`);
             continue;
         }
-
-        // Combine all chunks into single blob
-        const mimeType = trackType === TRACK_TYPES.AUDIO ? 'audio/webm' : 'video/webm';
-        const blob = new Blob(state.chunks, { type: mimeType });
-
-        // Create download link
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${participantId}_${trackType}_${sessionId}.webm`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        log(trackType, `✓ Downloaded ${a.download}`, 'success');
-        console.log(`✅ Downloaded: ${a.download}`);
+        
+        try {
+            // Combine all chunks into single blob
+            const mimeType = trackType === TRACK_TYPES.AUDIO ? 'audio/webm' : 'video/webm';
+            const blob = new Blob(state.chunks, { type: mimeType });
+            
+            // Create download link
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${trackType}_recording_${state.recordingId}.webm`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            URL.revokeObjectURL(url);
+            console.log(`✅ Downloaded ${trackType} recording (${(blob.size / (1024 * 1024)).toFixed(2)} MB)`);
+        } catch (error) {
+            console.error(`Error downloading ${trackType}:`, error);
+        }
     }
-
-    alert('All recordings downloaded! Check your Downloads folder.');
+    
+    console.log('✅ All recordings downloaded!');
 }
 
 // ==================== UI Updates ====================
