@@ -23,7 +23,7 @@ class StartRecordingRequest(BaseModel):
     track_type: str = Field(default="audio", description="Type of media track (audio/video/screen)")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "session_id": "session_123",
                 "participant_id": "user_456",
@@ -42,7 +42,7 @@ class InitiateUploadRequest(BaseModel):
     total_chunks: int = Field(..., gt=0, description="Total number of chunks")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "recording_id": "123e4567-e89b-12d3-a456-426614174000",
                 "session_id": "session_123",
@@ -61,7 +61,7 @@ class UploadChunkRequest(BaseModel):
     checksum: str = Field(..., description="MD5 checksum of chunk data")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "upload_id": "123e4567-e89b-12d3-a456-426614174000",
                 "sequence_number": 0,
@@ -102,7 +102,7 @@ class RecordingResponse(BaseModel):
     duration_seconds: Optional[float] = 0.0
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "recording_id": "123e4567-e89b-12d3-a456-426614174000",
                 "session_id": "session_123",
@@ -131,7 +131,7 @@ class UploadResponse(BaseModel):
     mime_type: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "upload_id": "123e4567-e89b-12d3-a456-426614174000",
                 "recording_id": "123e4567-e89b-12d3-a456-426614174001",
@@ -157,7 +157,7 @@ class ChunkResponse(BaseModel):
     uploaded_at: Optional[datetime]
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "chunk_id": "123e4567-e89b-12d3-a456-426614174000",
                 "recording_id": "123e4567-e89b-12d3-a456-426614174001",
@@ -183,7 +183,7 @@ class RecordingStatusResponse(BaseModel):
     upload: Optional[dict] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "recording_id": "123e4567-e89b-12d3-a456-426614174000",
                 "session_id": "session_123",
@@ -212,7 +212,7 @@ class ErrorResponse(BaseModel):
     error_code: Optional[str] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "error": "Recording not found",
                 "detail": "Recording with ID 123 does not exist",
@@ -228,7 +228,7 @@ class SuccessResponse(BaseModel):
     data: Optional[dict] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "message": "Operation completed successfully",
                 "data": {"resource_id": "123"},

@@ -1,0 +1,109 @@
+{
+  "info": {
+    "_postman_id": "3b75c84b-43e4-4c5f-b09b-91f0f1b7d45b",
+    "name": "PodcastHub - Media Processing Service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Collection for interacting with the Media Processing Service APIs."
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Processing Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"session_id\": \"{{sessionId}}\",\n  \"recording_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"output_format\": \"mp3\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/processing/jobs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "processing",
+            "jobs"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Start Processing Job",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/processing/jobs/{{jobId}}/start",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "processing",
+            "jobs",
+            "{{jobId}}",
+            "start"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Job Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/processing/jobs/{{jobId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "processing",
+            "jobs",
+            "{{jobId}}"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8002"
+    },
+    {
+      "key": "sessionId",
+      "value": "session_123"
+    },
+    {
+      "key": "jobId",
+      "value": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}
