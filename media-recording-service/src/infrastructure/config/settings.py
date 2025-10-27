@@ -97,6 +97,10 @@ class Settings(BaseSettings):
         default="podcasthub",
         env="POSTGRES_DATABASE",
     )
+    persistence_backend: str = Field(
+        default="postgres",
+        env="PERSISTENCE_BACKEND",
+    )
 
     # Redis settings
     redis_host: str = Field(
@@ -106,6 +110,12 @@ class Settings(BaseSettings):
     redis_port: int = Field(
         default=6379,
         env="REDIS_PORT",
+    )
+
+    # Media processing queue
+    media_processing_queue: str = Field(
+        default="media.processing.requests",
+        env="MEDIA_PROCESSING_QUEUE",
     )
 
     class Config:

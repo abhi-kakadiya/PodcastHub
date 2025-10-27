@@ -8,32 +8,42 @@ This is where we wire up the concrete implementations to the ports.
 from typing import Optional
 
 from src.application.ports.inbound import RecordingServicePort, UploadServicePort
+from src.application.ports.outbound import RecordingRepositoryPort
 from src.application.services import RecordingService, UploadService
 from src.adapters.outbound.repository import (
     InMemoryRecordingRepository,
+    PostgresRecordingRepository,
     InMemoryChunkRepository,
     InMemoryUploadRepository,
 )
 from src.adapters.outbound.messaging import RabbitMQEventPublisher
 from src.adapters.outbound.storage import FileStorage
 from src.infrastructure.config import get_settings
+from src.infrastructure.persistence import RecordingMetadataStore, get_recording_metadata_store
 
 
 # Global singletons (in production, use a proper DI container)
-_recording_repository: Optional[InMemoryRecordingRepository] = None
+_recording_repository: Optional[RecordingRepositoryPort] = None
 _chunk_repository: Optional[InMemoryChunkRepository] = None
 _upload_repository: Optional[InMemoryUploadRepository] = None
 _event_publisher: Optional[RabbitMQEventPublisher] = None
 _storage: Optional[FileStorage] = None
 _recording_service: Optional[RecordingService] = None
 _upload_service: Optional[UploadService] = None
+_metadata_store: Optional[RecordingMetadataStore] = None
+_use_in_memory_override: bool = False
 
 
-def get_recording_repository() -> InMemoryRecordingRepository:
+def get_recording_repository() -> RecordingRepositoryPort:
     """Get or create recording repository instance"""
     global _recording_repository
     if _recording_repository is None:
-        _recording_repository = InMemoryRecordingRepository()
+        settings = get_settings()
+        if not _use_in_memory_override and settings.persistence_backend.lower() == "postgres":
+            store = get_recording_metadata_store()
+            _recording_repository = PostgresRecordingRepository(store)
+        else:
+            _recording_repository = InMemoryRecordingRepository()
     return _recording_repository
 
 
@@ -118,6 +128,20 @@ async def initialize_dependencies():
 
     This should be called during application startup.
     """
+    global _recording_repository, _metadata_store, _use_in_memory_override
+
+    settings = get_settings()
+
+    if settings.persistence_backend.lower() == "postgres":
+        try:
+            _metadata_store = get_recording_metadata_store()
+            await _metadata_store.initialize()
+        except Exception as exc:  # pragma: no cover - startup degradation path
+            print(f"Warning: Failed to initialise PostgreSQL store: {exc}")
+            print("Falling back to in-memory recording repository.")
+            _use_in_memory_override = True
+            _recording_repository = InMemoryRecordingRepository()
+
     # Initialize RabbitMQ connection
     event_publisher = get_event_publisher()
     try:
@@ -133,8 +157,11 @@ async def cleanup_dependencies():
 
     This should be called during application shutdown.
     """
-    global _event_publisher
+    global _event_publisher, _metadata_store
 
     # Disconnect from RabbitMQ
     if _event_publisher:
         await _event_publisher.disconnect()
+
+    if _metadata_store:
+        await _metadata_store.dispose()

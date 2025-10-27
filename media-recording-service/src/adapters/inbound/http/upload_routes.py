@@ -1,27 +1,57 @@
 """
-Upload HTTP Routes - Simplified with MinIO Integration
-Handles chunk uploads directly to MinIO storage
+Upload HTTP Routes with MinIO Integration
+
+Handles chunk uploads, progress queries, and manual processing enqueueing.
+Backed by PostgreSQL metadata for consistent state across services.
 """
 
-from fastapi import APIRouter, HTTPException, File, UploadFile, Form
-from pydantic import BaseModel
+from __future__ import annotations
+
+import asyncio
 import hashlib
 import logging
 from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Form, HTTPException, UploadFile, File
+from pydantic import BaseModel
+
+from src.adapters.outbound.minio_storage import MinIOStorageAdapter
+from src.adapters.inbound.http.websocket_handler import broadcast_to_session
+from src.domain.models import RecordingStatus
+from src.infrastructure.config.settings import get_settings
+from src.infrastructure.messaging.processing_queue import ProcessingCommandPublisher
+from src.infrastructure.persistence import get_recording_metadata_store
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 logger = logging.getLogger(__name__)
 
-# Import MinIO adapter
-from src.adapters.outbound.minio_storage import MinIOStorageAdapter
-from src.infrastructure.config.settings import get_settings
+_minio_client: Optional[MinIOStorageAdapter] = None
+_processing_publisher: Optional[ProcessingCommandPublisher] = None
+_publisher_lock = asyncio.Lock()
 
-# Global MinIO client (will be initialized on first use)
-_minio_client = None
+
+class ChunkUploadResponse(BaseModel):
+    chunk_id: str
+    recording_id: str
+    sequence: int
+    size_bytes: int
+    checksum: str
+    content_type: str
+    minio_path: str
+    uploaded_at: str
+
+
+class ProcessingEnqueuedResponse(BaseModel):
+    recording_id: str
+    track_type: str
+    chunk_count: int
+    queue: str
+    enqueued_at: str
 
 
 def get_minio_client() -> MinIOStorageAdapter:
-    """Get or create MinIO client"""
     global _minio_client
     if _minio_client is None:
         settings = get_settings()
@@ -35,18 +65,27 @@ def get_minio_client() -> MinIOStorageAdapter:
     return _minio_client
 
 
-# Import recordings database from recording_routes
-from .recording_routes import recordings_db
+async def _get_processing_publisher() -> ProcessingCommandPublisher:
+    global _processing_publisher
+    if _processing_publisher and _processing_publisher._connection:  # type: ignore[attr-defined]
+        return _processing_publisher
+
+    async with _publisher_lock:
+        if _processing_publisher and _processing_publisher._connection:  # type: ignore[attr-defined]
+            return _processing_publisher
+
+        settings = get_settings()
+        publisher = ProcessingCommandPublisher(
+            rabbitmq_url=settings.rabbitmq_url,
+            queue_name=settings.media_processing_queue,
+        )
+        await publisher.connect()
+        _processing_publisher = publisher
+        return publisher
 
 
-class ChunkUploadResponse(BaseModel):
-    chunk_id: str
-    recording_id: str
-    sequence: int
-    size_bytes: int
-    checksum: str
-    minio_path: str
-    uploaded_at: str
+async def _broadcast_progress(session_id: str, payload: dict) -> None:
+    await broadcast_to_session(session_id, {"type": "recording-progress", **payload})
 
 
 @router.post("/chunk", response_model=ChunkUploadResponse)
@@ -56,155 +95,161 @@ async def upload_chunk(
     checksum: str = Form(...),
     chunk_file: UploadFile = File(...),
 ):
-    """
-    Upload a recording chunk to MinIO
+    metadata_store = get_recording_metadata_store()
 
-    This endpoint:
-    1. Receives chunk data from frontend
-    2. Validates SHA-256 checksum
-    3. Uploads to MinIO
-    4. Updates recording metadata
-    5. Returns upload confirmation
-    """
     try:
-        # Read chunk data
-        chunk_data = await chunk_file.read()
+        recording_uuid = UUID(recording_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid recording_id") from exc
 
-        # Validate checksum (SHA-256)
-        calculated_checksum = hashlib.sha256(chunk_data).hexdigest()
-        if calculated_checksum != checksum:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Checksum mismatch: expected {checksum}, got {calculated_checksum}"
-            )
-
-        # Get recording metadata
-        recording = recordings_db.get(recording_id)
-        if not recording:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Recording {recording_id} not found"
-            )
-
-        # Get MinIO client
-        minio_client = get_minio_client()
-
-        # Upload to MinIO
-        minio_path = minio_client.upload_chunk(
-            session_id=recording["session_id"],
-            recording_id=recording_id,
-            track_type=recording["track_type"],
-            sequence=sequence,
-            chunk_data=chunk_data,
-            content_type=chunk_file.content_type or "video/webm",
-        )
-
-        # Update recording metadata
-        chunk_info = {
-            "sequence": sequence,
-            "size_bytes": len(chunk_data),
-            "checksum": checksum,
-            "minio_path": minio_path,
-            "uploaded_at": datetime.utcnow().isoformat(),
-        }
-
-        recording["chunks"].append(chunk_info)
-        recording["total_chunks"] = len(recording["chunks"])
-        recording["uploaded_chunks"] = len(recording["chunks"])
-
-        logger.info(
-            f"✓ Uploaded chunk {sequence} for recording {recording_id} "
-            f"({len(chunk_data)} bytes) to {minio_path}"
-        )
-
-        return ChunkUploadResponse(
-            chunk_id=f"{recording_id}-{sequence}",
-            recording_id=recording_id,
-            sequence=sequence,
-            size_bytes=len(chunk_data),
-            checksum=checksum,
-            minio_path=minio_path,
-            uploaded_at=chunk_info["uploaded_at"],
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading chunk: {e}")
+    recording = await metadata_store.get_recording_as_domain(recording_uuid)
+    if not recording:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to upload chunk: {str(e)}"
+            status_code=404,
+            detail=f"Recording {recording_id} not found",
         )
+    if recording.status == RecordingStatus.STOPPED:
+        raise HTTPException(
+            status_code=409,
+            detail="Recording already stopped; no further chunks accepted",
+        )
+
+    chunk_bytes = await chunk_file.read()
+    calculated_checksum = hashlib.sha256(chunk_bytes).hexdigest()
+    if calculated_checksum != checksum:
+        await metadata_store.increment_checksum_failure(recording_uuid)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Checksum mismatch: expected {checksum}, got {calculated_checksum}",
+        )
+
+    minio = get_minio_client()
+    content_type = chunk_file.content_type or (
+        "audio/webm" if recording.track_type.value == "audio" else "video/webm"
+    )
+
+    minio_path = minio.upload_chunk(
+        session_id=recording.session_id,
+        recording_id=recording_id,
+        track_type=recording.track_type.value,
+        sequence=sequence,
+        chunk_data=chunk_bytes,
+        content_type=content_type,
+    )
+
+    try:
+        chunk_info = await metadata_store.add_chunk(
+            recording_uuid,
+            sequence=sequence,
+            size_bytes=len(chunk_bytes),
+            checksum=checksum,
+            content_type=content_type,
+            minio_path=minio_path,
+        )
+    except ValueError as exc:
+        # Rollback MinIO object to keep storage clean
+        try:
+            minio.delete_chunk(minio_path)
+        except Exception:  # pragma: no cover - cleanup best effort
+            logger.warning("Failed to rollback chunk %s after metadata error", minio_path)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    progress = await metadata_store.get_recording_progress(recording_uuid)
+    await _broadcast_progress(recording.session_id, progress)
+
+    return ChunkUploadResponse(
+        chunk_id=chunk_info["chunk_id"],
+        recording_id=chunk_info["recording_id"],
+        sequence=chunk_info["sequence"],
+        size_bytes=chunk_info["size_bytes"],
+        checksum=chunk_info["checksum"],
+        content_type=chunk_info["content_type"],
+        minio_path=chunk_info["minio_path"],
+        uploaded_at=chunk_info["uploaded_at"],
+    )
+
+
+@router.post(
+    "/recording/{recording_id}/enqueue-processing",
+    response_model=ProcessingEnqueuedResponse,
+)
+async def enqueue_recording_processing(recording_id: str):
+    metadata_store = get_recording_metadata_store()
+    try:
+        recording_uuid = UUID(recording_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid recording_id") from exc
+
+    recording = await metadata_store.get_recording_as_domain(recording_uuid)
+    if not recording:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Recording {recording_id} not found",
+        )
+
+    chunk_objects = await metadata_store.get_chunk_paths(recording_uuid)
+    if not chunk_objects:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No chunks uploaded for recording {recording_id}",
+        )
+
+    await metadata_store.mark_processing_enqueued(recording_uuid)
+
+    publisher = await _get_processing_publisher()
+    payload = {
+        "recording_id": recording_id,
+        "session_id": recording.session_id,
+        "participant_id": recording.participant_id,
+        "track_type": recording.track_type.value,
+        "chunk_objects": chunk_objects,
+        "content_type": "audio/webm" if recording.track_type.value == "audio" else "video/webm",
+        "requested_at": datetime.utcnow().isoformat(),
+        "attempts": 0,
+    }
+    await publisher.publish(payload)
+
+    logger.info(
+        "Enqueued recording %s (%s) for processing via queue %s",
+        recording_id,
+        recording.track_type.value,
+        publisher.queue_name,
+    )
+
+    return ProcessingEnqueuedResponse(
+        recording_id=recording_id,
+        track_type=recording.track_type.value,
+        chunk_count=len(chunk_objects),
+        queue=publisher.queue_name,
+        enqueued_at=datetime.utcnow().isoformat(),
+    )
 
 
 @router.get("/recording/{recording_id}/progress")
 async def get_upload_progress(recording_id: str):
-    """
-    Get upload progress for a recording
+    metadata_store = get_recording_metadata_store()
+    try:
+        recording_uuid = UUID(recording_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid recording_id") from exc
 
-    Returns:
-    - Total chunks expected
-    - Chunks uploaded
-    - Progress percentage
-    - Chunk details
-    """
-    recording = recordings_db.get(recording_id)
+    try:
+        progress = await metadata_store.get_recording_progress(recording_uuid)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    if not recording:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Recording {recording_id} not found"
-        )
-
-    total_chunks = recording.get("total_chunks", 0)
-    uploaded_chunks = recording.get("uploaded_chunks", 0)
-    progress = (uploaded_chunks / total_chunks * 100) if total_chunks > 0 else 0
-
-    return {
-        "recording_id": recording_id,
-        "track_type": recording["track_type"],
-        "total_chunks": total_chunks,
-        "uploaded_chunks": uploaded_chunks,
-        "progress_percentage": progress,
-        "status": recording["status"],
-        "chunks": recording.get("chunks", []),
-    }
+    return progress
 
 
 @router.get("/session/{session_id}/progress")
 async def get_session_upload_progress(session_id: str):
-    """
-    Get upload progress for all recordings in a session
+    metadata_store = get_recording_metadata_store()
+    return await metadata_store.list_session_progress(session_id)
 
-    Returns aggregated progress for audio, video, and screen tracks
-    """
-    session_recordings = [
-        rec for rec in recordings_db.values()
-        if rec["session_id"] == session_id
-    ]
 
-    if not session_recordings:
-        return {
-            "session_id": session_id,
-            "tracks": {
-                "audio": {"uploaded": 0, "total": 0},
-                "video": {"uploaded": 0, "total": 0},
-                "screen": {"uploaded": 0, "total": 0},
-            }
-        }
-
-    tracks = {"audio": {}, "video": {}, "screen": {}}
-
-    for rec in session_recordings:
-        track_type = rec["track_type"]
-        if track_type in tracks:
-            tracks[track_type] = {
-                "uploaded": rec.get("uploaded_chunks", 0),
-                "total": rec.get("total_chunks", 0),
-                "progress": (rec.get("uploaded_chunks", 0) / rec.get("total_chunks", 1) * 100) if rec.get("total_chunks", 0) > 0 else 0,
-            }
-
-    return {
-        "session_id": session_id,
-        "tracks": tracks,
-    }
+@router.on_event("shutdown")
+async def shutdown_processing_publisher():
+    global _processing_publisher
+    if _processing_publisher:
+        await _processing_publisher.close()
+        _processing_publisher = None

@@ -9,6 +9,7 @@ from .base import DomainEvent
 from .recording_events import RecordingStarted, RecordingEnded, RecordingPaused, RecordingResumed, RecordingFailed
 from .chunk_events import ChunkCaptured, ChunkUploaded, ChunkFailed
 from .upload_events import UploadStarted, UploadCompleted, UploadFailed
+from .processing_events import RecordingProcessed
 
 __all__ = [
     "DomainEvent",
@@ -23,4 +24,5 @@ __all__ = [
     "UploadStarted",
     "UploadCompleted",
     "UploadFailed",
+    "RecordingProcessed",
 ]

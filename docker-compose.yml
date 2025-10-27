@@ -78,6 +78,74 @@ services:
     networks:
       - podcasthub
 
+  media-recording-service:
+    build:
+      context: ./media-recording-service
+    container_name: podcasthub_media_recording
+    env_file:
+      - ./media-recording-service/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      MINIO_ENDPOINT: minio:9000
+    ports:
+      - "8001:8001"
+    depends_on:
+      - rabbitmq
+      - minio
+    restart: unless-stopped
+    networks:
+      - podcasthub
+
+  media-processing-worker:
+    build:
+      context: ./media-recording-service
+    container_name: podcasthub_media_worker
+    command: ["python", "-m", "src.processors.media_processing_worker"]
+    env_file:
+      - ./media-recording-service/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      MINIO_ENDPOINT: minio:9000
+    depends_on:
+      - rabbitmq
+      - minio
+      - postgres
+    restart: unless-stopped
+    networks:
+      - podcasthub
+
+  media-processing-service:
+    build:
+      context: ./media-processing-service
+    container_name: podcasthub_media_processing
+    env_file:
+      - ./media-processing-service/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "8002:8002"
+    depends_on:
+      - rabbitmq
+    restart: unless-stopped
+    networks:
+      - podcasthub
+
+  podcast-frontend:
+    build:
+      context: ./podcast-frontend
+    container_name: podcasthub_frontend
+    env_file:
+      - ./podcast-frontend/.env
+    environment:
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - media-recording-service
+    restart: unless-stopped
+    networks:
+      - podcasthub
+
 volumes:
   rabbitmq_data:
     driver: local
