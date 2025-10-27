@@ -1,8 +1,10 @@
-# PodcastHub Frontend (Next.js + shadcn/ui)
+# PodcastHub Frontend
+
+Modern Next.js 14 frontend for PodcastHub - A professional podcast recording platform with real-time collaboration.
 
 ## Overview
 
-This is the Next.js frontend for PodcastHub, inspired by Riverside.fm's professional podcast recording interface.
+Production-ready frontend with WebRTC peer-to-peer connections, real-time chunk upload to MinIO, and Riverside.fm-inspired dark theme.
 
 ## Technology Stack
 

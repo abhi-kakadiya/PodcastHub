@@ -54,9 +54,68 @@ class Settings(BaseSettings):
         env="MAX_UPLOAD_SIZE",
     )
 
+    # MinIO settings
+    minio_endpoint: str = Field(
+        default="localhost:9000",
+        env="MINIO_ENDPOINT",
+    )
+    minio_access_key: str = Field(
+        default="minioadmin",
+        env="MINIO_ACCESS_KEY",
+    )
+    minio_secret_key: str = Field(
+        default="minioadmin",
+        env="MINIO_SECRET_KEY",
+    )
+    minio_secure: bool = Field(
+        default=False,
+        env="MINIO_SECURE",
+    )
+    minio_bucket: str = Field(
+        default="recordings",
+        env="MINIO_BUCKET",
+    )
+
+    # PostgreSQL settings
+    postgres_host: str = Field(
+        default="localhost",
+        env="POSTGRES_HOST",
+    )
+    postgres_port: int = Field(
+        default=5432,
+        env="POSTGRES_PORT",
+    )
+    postgres_user: str = Field(
+        default="podcasthub",
+        env="POSTGRES_USER",
+    )
+    postgres_password: str = Field(
+        default="podcasthub123",
+        env="POSTGRES_PASSWORD",
+    )
+    postgres_database: str = Field(
+        default="podcasthub",
+        env="POSTGRES_DATABASE",
+    )
+
+    # Redis settings
+    redis_host: str = Field(
+        default="localhost",
+        env="REDIS_HOST",
+    )
+    redis_port: int = Field(
+        default=6379,
+        env="REDIS_PORT",
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+    @property
+    def database_url(self) -> str:
+        """Get PostgreSQL connection URL"""
+        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
 
 
 @lru_cache()
