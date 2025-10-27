@@ -140,27 +140,72 @@ class MediaProcessingWorker:
                 logger.error("Failed to download chunks for recording %s", recording_id)
                 return
 
-            manifest_path = temp_path / "chunks.txt"
-            manifest_lines = []
-            for chunk_path in local_chunks:
-                manifest_lines.append(f"file '{chunk_path.as_posix()}'")
-            manifest_path.write_text("\n".join(manifest_lines), encoding="utf-8")
+            combined_path = temp_path / f"{recording_id}_combined.webm"
+            with combined_path.open("wb") as combined_file:
+                for chunk_path in local_chunks:
+                    combined_file.write(chunk_path.read_bytes())
 
-            output_extension = "mp3" if track_type == "audio" else "mp4"
-            output_path = temp_path / f"{recording_id}.{output_extension}"
-            await self._run_ffmpeg_concat(manifest_path, output_path, track_type)
+            if track_type == "audio":
+                output_path = temp_path / f"{recording_id}.mp3"
+                await self._run_ffmpeg(
+                    [
+                        "ffmpeg",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        str(combined_path),
+                        "-c:a",
+                        "libmp3lame",
+                        "-b:a",
+                        "192k",
+                        "-ar",
+                        "48000",
+                        str(output_path),
+                    ]
+                )
+                processed_content_type = "audio/mpeg"
+                output_filename = f"{track_type}_{recording_id}.mp3"
+            else:
+                output_path = temp_path / f"{recording_id}.mp4"
+                await self._run_ffmpeg(
+                    [
+                        "ffmpeg",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        str(combined_path),
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "veryfast",
+                        "-crf",
+                        "20",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "192k",
+                        "-movflags",
+                        "+faststart",
+                        str(output_path),
+                    ]
+                )
+                processed_content_type = "video/mp4"
+                output_filename = f"{track_type}_{recording_id}.mp4"
 
             if not output_path.exists():
                 logger.error("FFmpeg did not produce output for recording %s", recording_id)
                 return
 
             output_bytes = output_path.read_bytes()
-            processed_content_type = "audio/mpeg" if track_type == "audio" else "video/mp4"
             processed_path = self._minio.upload_processed_file(
                 session_id=session_id,
                 recording_id=recording_id,
                 file_data=output_bytes,
-                file_name=f"{track_type}_{recording_id}.{output_extension}",
+                file_name=output_filename,
                 content_type=processed_content_type,
             )
 
@@ -215,90 +260,17 @@ class MediaProcessingWorker:
 
         return local_paths
 
-    async def _run_ffmpeg_concat(self, manifest_path: Path, output_path: Path, track_type: str) -> None:
-        """Run ffmpeg concat demuxer to stitch media chunks."""
-        cmd = [
-            "ffmpeg",
-            "-loglevel",
-            "error",
-            "-fflags",
-            "+genpts",
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(manifest_path),
-        ]
-        track = track_type.lower()
-        if track == "audio":
-            cmd.extend(
-                [
-                    "-map",
-                    "0:a:0",
-                    "-c:a",
-                    "libmp3lame",
-                    "-b:a",
-                    "192k",
-                    "-ar",
-                    "48000",
-                ]
-            )
-        elif track == "screen":
-            cmd.extend(
-                [
-                    "-map",
-                    "0:v:0",
-                    "-an",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "20",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-movflags",
-                    "+faststart",
-                ]
-            )
-        else:
-            cmd.extend(
-                [
-                    "-map",
-                    "0:v:0",
-                    "-map",
-                    "0:a:0",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "20",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "192k",
-                    "-movflags",
-                    "+faststart",
-                ]
-            )
-
-        cmd.append(str(output_path))
-
+    async def _run_ffmpeg(self, cmd: List[str]) -> None:
+        """Execute an ffmpeg command and raise on failure."""
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await process.communicate()
-
         if process.returncode != 0:
             error_output = (stderr or stdout).decode("utf-8", errors="ignore").strip()
-            raise RuntimeError(f"FFmpeg concat failed: {error_output}")
+            raise RuntimeError(f"FFmpeg command failed: {error_output}")
 
     async def close(self) -> None:
         """Clean up connections."""
