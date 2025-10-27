@@ -231,44 +231,55 @@ The Recording Service implements Hexagonal Architecture (Ports \& Adapters) for 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-    node distance=2cm,
-    actor/.style={rectangle, draw, minimum width=2cm, minimum height=0.7cm, font=\small},
-    message/.style={->, thick}
+    scale=1.0,
+    node distance=3.5cm,
+    actor/.style={rectangle, draw, fill=blue!10, minimum width=2.5cm, minimum height=0.8cm, font=\small\bfseries},
+    message/.style={->, >=stealth, thick},
+    label/.style={font=\footnotesize, fill=white, inner sep=2pt}
 ]
 
-% Actors (simplified positioning - no calc library overhead)
+% Actors (proper positioning with consistent spacing)
 \node[actor] (browser) {Browser};
-\node[actor, right of=browser] (api) {Recording API};
-\node[actor, right of=api] (domain) {Domain Layer};
-\node[actor, right of=domain] (minio) {MinIO};
+\node[actor, right=3.5cm of browser] (api) {Recording API};
+\node[actor, right=3.5cm of api] (domain) {Domain Layer};
+\node[actor, right=3.5cm of domain] (minio) {MinIO};
 
-% Lifelines (shorter for faster rendering)
-\draw[dashed] (browser.south) -- ++(0,-6cm);
-\draw[dashed] (api.south) -- ++(0,-6cm);
-\draw[dashed] (domain.south) -- ++(0,-6cm);
-\draw[dashed] (minio.south) -- ++(0,-6cm);
+% Lifelines (longer for better readability)
+\draw[dashed, thick] (browser.south) -- ++(0,-9cm);
+\draw[dashed, thick] (api.south) -- ++(0,-9cm);
+\draw[dashed, thick] (domain.south) -- ++(0,-9cm);
+\draw[dashed, thick] (minio.south) -- ++(0,-9cm);
 
-% Messages (using yshift instead of calc for better performance)
-\draw[message] ([yshift=-0.5cm]browser.south) -- node[above, font=\tiny] {1. Record 5s chunk} ([yshift=-0.5cm]browser.south east);
+% Messages with proper spacing (1cm between each)
+% Self-call for browser recording
+\draw[message] ([yshift=-0.8cm]browser.south) -- node[label, right] {1. Record chunk} ++(1.5cm,0) -- ++(0,-0.4cm) -- ++(-1.5cm,0);
 
-\draw[message] ([yshift=-1.2cm]browser.south) -- node[above, font=\tiny] {2. POST /uploads/chunk} ([yshift=-1.2cm]api.south);
+% Browser to API
+\draw[message] ([yshift=-1.8cm]browser.south) -- node[label, above] {2. POST /uploads/chunk} ([yshift=-1.8cm]api.south);
 
-\draw[message] ([yshift=-2cm]api.south) -- node[above, font=\tiny] {3. validate\_checksum()} ([yshift=-2cm]domain.south);
+% API to Domain
+\draw[message] ([yshift=-2.8cm]api.south) -- node[label, above] {3. validate\_checksum()} ([yshift=-2.8cm]domain.south);
 
-\draw[message] ([yshift=-2.8cm]domain.south) -- node[above, font=\tiny] {4. upload\_chunk()} ([yshift=-2.8cm]minio.south);
+% Domain to MinIO
+\draw[message] ([yshift=-3.8cm]domain.south) -- node[label, above] {4. upload\_chunk()} ([yshift=-3.8cm]minio.south);
 
-\draw[message] ([yshift=-3.4cm]minio.south) -- node[below, font=\tiny] {5. 200 OK} ([yshift=-3.4cm]domain.south);
+% MinIO back to Domain
+\draw[message] ([yshift=-4.8cm]minio.south) -- node[label, below] {5. 200 OK} ([yshift=-4.8cm]domain.south);
 
-\draw[message] ([yshift=-4cm]domain.south) -- node[above, font=\tiny] {6. Emit event} ([yshift=-4cm]domain.south east);
+% Self-call for domain event
+\draw[message] ([yshift=-5.6cm]domain.south) -- node[label, right] {6. Emit event} ++(1.2cm,0) -- ++(0,-0.3cm) -- ++(-1.2cm,0);
 
-\draw[message] ([yshift=-4.6cm]domain.south) -- node[below, font=\tiny] {7. Response} ([yshift=-4.6cm]api.south);
+% Domain back to API
+\draw[message] ([yshift=-6.6cm]domain.south) -- node[label, below] {7. Response} ([yshift=-6.6cm]api.south);
 
-\draw[message] ([yshift=-5.2cm]api.south) -- node[below, font=\tiny] {8. \{chunk\_id, progress\}} ([yshift=-5.2cm]browser.south);
+% API back to Browser
+\draw[message] ([yshift=-7.6cm]api.south) -- node[label, below] {8. \{chunk\_id, progress\}} ([yshift=-7.6cm]browser.south);
 
-\node[font=\tiny\bfseries] at (2,-6.5) {9. Repeat every 5 seconds during recording...};
+% Repeat note at bottom
+\node[font=\footnotesize\bfseries, text width=10cm, align=center] at (6,-9.5) {9. Repeat every 5 seconds during recording...};
 
 \end{tikzpicture}
-\caption{Real-Time Chunk Upload Sequence (Optimized)}
+\caption{Real-Time Chunk Upload Sequence}
 \end{figure}
 
 \section{Domain-Driven Design}
