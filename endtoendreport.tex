@@ -16,6 +16,12 @@
 % TikZ libraries for diagrams
 \usetikzlibrary{shapes,arrows,positioning,fit,backgrounds,calc}
 
+% TikZ externalization for faster compilation (cache diagrams)
+% Compile with: pdflatex -shell-escape endtoendreport.tex
+% First run: 30-45s (generates cache), subsequent runs: 5-10s
+\usetikzlibrary{external}
+\tikzexternalize[prefix=tikz-cache/]
+
 % Code listing settings
 \lstset{
     basicstyle=\ttfamily\footnotesize,
@@ -218,44 +224,44 @@ The Recording Service implements Hexagonal Architecture (Ports \& Adapters) for 
 \begin{figure}[H]
 \centering
 \begin{tikzpicture}[
-    node distance=0.3cm,
-    actor/.style={rectangle, draw, minimum width=1.5cm, minimum height=0.6cm, font=\footnotesize},
+    node distance=2cm,
+    actor/.style={rectangle, draw, minimum width=2cm, minimum height=0.7cm, font=\small},
     message/.style={->, thick}
 ]
 
-% Actors
+% Actors (simplified positioning - no calc library overhead)
 \node[actor] (browser) {Browser};
-\node[actor, right=1.5cm of browser] (api) {API};
-\node[actor, right=1.5cm of api] (domain) {Domain};
-\node[actor, right=1.5cm of domain] (minio) {MinIO};
+\node[actor, right of=browser] (api) {Recording API};
+\node[actor, right of=api] (domain) {Domain Layer};
+\node[actor, right of=domain] (minio) {MinIO};
 
-% Lifelines
-\draw[dashed] (browser.south) -- ++(0,-8cm);
-\draw[dashed] (api.south) -- ++(0,-8cm);
-\draw[dashed] (domain.south) -- ++(0,-8cm);
-\draw[dashed] (minio.south) -- ++(0,-8cm);
+% Lifelines (shorter for faster rendering)
+\draw[dashed] (browser.south) -- ++(0,-6cm);
+\draw[dashed] (api.south) -- ++(0,-6cm);
+\draw[dashed] (domain.south) -- ++(0,-6cm);
+\draw[dashed] (minio.south) -- ++(0,-6cm);
 
-% Messages
-\draw[message] ($(browser.south)+(0,-0.5)$) -- node[above, font=\tiny] {1. MediaRecorder.ondataavailable} ($(browser.south)+(0,-1)$);
+% Messages (using yshift instead of calc for better performance)
+\draw[message] ([yshift=-0.5cm]browser.south) -- node[above, font=\tiny] {1. Record 5s chunk} ([yshift=-0.5cm]browser.south east);
 
-\draw[message] ($(browser.south)+(0,-1.5)$) -- node[above, font=\tiny] {2. POST /uploads/chunk} ($(api.south)+(0,-1.5)$);
+\draw[message] ([yshift=-1.2cm]browser.south) -- node[above, font=\tiny] {2. POST /uploads/chunk} ([yshift=-1.2cm]api.south);
 
-\draw[message] ($(api.south)+(0,-2)$) -- node[above, font=\tiny] {3. validate\_checksum()} ($(domain.south)+(0,-2)$);
+\draw[message] ([yshift=-2cm]api.south) -- node[above, font=\tiny] {3. validate\_checksum()} ([yshift=-2cm]domain.south);
 
-\draw[message] ($(domain.south)+(0,-2.5)$) -- node[above, font=\tiny] {4. upload\_chunk()} ($(minio.south)+(0,-2.5)$);
+\draw[message] ([yshift=-2.8cm]domain.south) -- node[above, font=\tiny] {4. upload\_chunk()} ([yshift=-2.8cm]minio.south);
 
-\draw[message] ($(minio.south)+(0,-3)$) -- node[above, font=\tiny] {5. 200 OK} ($(domain.south)+(0,-3)$);
+\draw[message] ([yshift=-3.4cm]minio.south) -- node[below, font=\tiny] {5. 200 OK} ([yshift=-3.4cm]domain.south);
 
-\draw[message] ($(domain.south)+(0,-3.5)$) -- node[above, font=\tiny] {6. ChunkUploaded event} ($(domain.south)+(0,-4)$);
+\draw[message] ([yshift=-4cm]domain.south) -- node[above, font=\tiny] {6. Emit event} ([yshift=-4cm]domain.south east);
 
-\draw[message] ($(domain.south)+(0,-4.5)$) -- node[above, font=\tiny] {7. response} ($(api.south)+(0,-4.5)$);
+\draw[message] ([yshift=-4.6cm]domain.south) -- node[below, font=\tiny] {7. Response} ([yshift=-4.6cm]api.south);
 
-\draw[message] ($(api.south)+(0,-5)$) -- node[above, font=\tiny] {8. \{chunk\_id, progress\}} ($(browser.south)+(0,-5)$);
+\draw[message] ([yshift=-5.2cm]api.south) -- node[below, font=\tiny] {8. \{chunk\_id, progress\}} ([yshift=-5.2cm]browser.south);
 
-\node[right=0.1cm of $(browser.south)+(0,-6)$, font=\tiny] {9. Continue every 5s...};
+\node[font=\tiny\bfseries] at (2,-6.5) {9. Repeat every 5 seconds during recording...};
 
 \end{tikzpicture}
-\caption{Real-Time Chunk Upload Sequence}
+\caption{Real-Time Chunk Upload Sequence (Optimized)}
 \end{figure}
 
 \section{Domain-Driven Design}

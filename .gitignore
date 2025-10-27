@@ -177,4 +177,4 @@ next-env.d.ts
 # Vercel
 .vercel
 
-ngrok.yml
+ngrok.ymltikz-cache/
