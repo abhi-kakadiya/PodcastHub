@@ -27,9 +27,42 @@
     stringstyle=\color{red}
 }
 
+% Define JavaScript/TypeScript language for listings
+\lstdefinelanguage{JavaScript}{
+  keywords={typeof, new, true, false, catch, function, return, null, catch, switch, var, if, in, while, do, else, case, break, const, let, async, await, export, import, from, class, extends, static},
+  keywordstyle=\color{blue}\bfseries,
+  ndkeywords={boolean, throw, import, export, Promise, MediaStream, WebSocket, RTCPeerConnection},
+  ndkeywordstyle=\color{purple}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=false,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{gray}\ttfamily,
+  stringstyle=\color{red}\ttfamily,
+  morestring=[b]',
+  morestring=[b]"
+}
+
+% Define YAML language for listings
+\lstdefinelanguage{yaml}{
+  keywords={true,false,null,y,n},
+  keywordstyle=\color{blue}\bfseries,
+  sensitive=false,
+  comment=[l]{\#},
+  commentstyle=\color{gray}\ttfamily,
+  stringstyle=\color{red}\ttfamily,
+  moredelim=[l][\color{orange}]{\&},
+  moredelim=[l][\color{purple}]{*},
+  moredelim=**[il][\color{purple}]{:},
+  morestring=[b]',
+  morestring=[b]",
+  literate={---}{-{-}-}3
+}
+
 % Header and footer
 \pagestyle{fancy}
 \fancyhf{}
+\setlength{\headheight}{14.5pt}
 \rhead{CAS 735 - Software Design}
 \lhead{PodcastHub: Microservices Architecture}
 \rfoot{Page \thepage}
