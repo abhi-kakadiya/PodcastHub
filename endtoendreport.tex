@@ -16,11 +16,18 @@
 % TikZ libraries for diagrams
 \usetikzlibrary{shapes,arrows,positioning,fit,backgrounds,calc}
 
-% TikZ externalization for faster compilation (cache diagrams)
-% Compile with: pdflatex -shell-escape endtoendreport.tex
-% First run: 30-45s (generates cache), subsequent runs: 5-10s
-\usetikzlibrary{external}
-\tikzexternalize[prefix=tikz-cache/]
+% TikZ externalization for faster compilation (OPTIONAL)
+% ONLY ENABLE IF YOU HAVE LOCAL LaTeX WITH SHELL-ESCAPE SUPPORT
+% Online editors (Overleaf, CloudLaTeX, etc.) do NOT support this
+%
+% To enable on local machine:
+%   1. Uncomment the two lines below
+%   2. Create directory: mkdir tikz-cache
+%   3. Compile with: pdflatex -shell-escape endtoendreport.tex
+%   4. Performance: First run 30s, subsequent runs 5-10s
+%
+% \usetikzlibrary{external}
+% \tikzexternalize[prefix=tikz-cache/]
 
 % Code listing settings
 \lstset{

@@ -2,40 +2,49 @@
 
 ## Quick Start
 
-### Fast Compilation (Recommended)
+### Standard Compilation (Works Everywhere)
+
+**This is the DEFAULT configuration - works on all LaTeX editors including Overleaf, CloudLaTeX, etc.**
 
 ```bash
-# Create cache directory
-mkdir -p tikz-cache
-
-# Compile with caching (requires -shell-escape)
-pdflatex -shell-escape endtoendreport.tex
-pdflatex -shell-escape endtoendreport.tex  # Run twice for TOC/references
+# Compile normally (no special flags needed)
+pdflatex endtoendreport.tex
+pdflatex endtoendreport.tex  # Run twice for TOC/references
 
 # Output: endtoendreport.pdf
 ```
 
 **Performance:**
+- Compilation time: ~40-50 seconds
+- Works on: Online editors, Overleaf, local installations
+
+### Fast Compilation with Caching (LOCAL ONLY)
+
+**Only for local LaTeX installations with shell-escape support.**
+
+1. **Enable externalization** in `endtoendreport.tex` (lines 29-30):
+   ```latex
+   % Uncomment these two lines:
+   \usetikzlibrary{external}
+   \tikzexternalize[prefix=tikz-cache/]
+   ```
+
+2. **Create cache directory:**
+   ```bash
+   mkdir -p tikz-cache
+   ```
+
+3. **Compile with shell-escape:**
+   ```bash
+   pdflatex -shell-escape endtoendreport.tex
+   pdflatex -shell-escape endtoendreport.tex
+   ```
+
+**Performance:**
 - First compile: ~30-45 seconds (generates diagram cache)
 - Subsequent compiles: **5-10 seconds** (reuses cached diagrams)
 
-### Online Editors (Overleaf, etc.)
-
-If you **cannot use `-shell-escape`**:
-
-1. **Remove externalization lines** (lines 19-23):
-   ```latex
-   % Comment out or delete these lines:
-   % \usetikzlibrary{external}
-   % \tikzexternalize[prefix=tikz-cache/]
-   ```
-
-2. **Compile normally:**
-   ```bash
-   pdflatex endtoendreport.tex
-   pdflatex endtoendreport.tex
-   ```
-   - Compilation time: ~45-60 seconds
+**⚠️ Warning:** Online editors do NOT support `-shell-escape` for security reasons. Use standard compilation above.
 
 ### Draft Mode (For Editing Text)
 
