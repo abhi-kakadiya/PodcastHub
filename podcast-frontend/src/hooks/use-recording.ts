@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 
 interface RecordingConfig {
   sessionId: string;
@@ -49,8 +49,6 @@ export function useRecording(
     screen: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
   });
 
-  const uploadQueue = useRef<Map<string, { blob: Blob; attempt: number }>>(new Map());
-
   // Calculate SHA-256 checksum
   const calculateChecksum = async (blob: Blob): Promise<string> => {
     const buffer = await blob.arrayBuffer();
@@ -59,7 +57,7 @@ export function useRecording(
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   };
 
-  // Upload chunk to backend (which uploads to MinIO)
+  // Upload chunk to backend
   const uploadChunk = async (
     trackType: 'audio' | 'video' | 'screen',
     recordingId: string,
@@ -115,61 +113,134 @@ export function useRecording(
     }
   };
 
+  // Create audio-only stream from video stream
+  const createAudioOnlyStream = (stream: MediaStream): MediaStream => {
+    const audioTracks = stream.getAudioTracks();
+    return new MediaStream(audioTracks);
+  };
+
+  // Create video-only stream from video stream
+  const createVideoOnlyStream = (stream: MediaStream): MediaStream => {
+    const videoTracks = stream.getVideoTracks();
+    return new MediaStream(videoTracks);
+  };
+
   // Create recorder for a track
   const createRecorder = useCallback(
     (
       trackType: 'audio' | 'video' | 'screen',
       stream: MediaStream,
       recordingId: string
-    ): MediaRecorder => {
-      const options: MediaRecorderOptions = {
-        mimeType: 'video/webm;codecs=vp9,opus',
-        videoBitsPerSecond: trackType === 'screen' ? 3000000 : 2500000, // 3Mbps for screen, 2.5Mbps for video
-        audioBitsPerSecond: 128000, // 128kbps
-      };
+    ): MediaRecorder | null => {
+      try {
+        let recordStream = stream;
+        let options: MediaRecorderOptions = {};
 
-      // Fallback for browsers that don't support VP9
-      if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
-        options.mimeType = 'video/webm;codecs=vp8,opus';
-      }
+        if (trackType === 'audio') {
+          // Audio-only recording
+          recordStream = createAudioOnlyStream(stream);
+          
+          if (recordStream.getAudioTracks().length === 0) {
+            console.warn('No audio tracks available for audio recording');
+            return null;
+          }
 
-      // Audio-only for audio track
-      if (trackType === 'audio') {
-        options.mimeType = 'audio/webm;codecs=opus';
-        delete options.videoBitsPerSecond;
-      }
+          // Try different audio codecs
+          if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+            options.mimeType = 'audio/webm;codecs=opus';
+          } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+            options.mimeType = 'audio/webm';
+          } else {
+            console.error('No supported audio format found');
+            return null;
+          }
+          
+          options.audioBitsPerSecond = 128000;
+        } else if (trackType === 'video') {
+          // Video with audio recording
+          if (stream.getVideoTracks().length === 0) {
+            console.warn('No video tracks available for video recording');
+            return null;
+          }
 
-      const recorder = new MediaRecorder(stream, options);
+          // Try different video codecs
+          if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+            options.mimeType = 'video/webm;codecs=vp9,opus';
+          } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
+            options.mimeType = 'video/webm;codecs=vp8,opus';
+          } else if (MediaRecorder.isTypeSupported('video/webm')) {
+            options.mimeType = 'video/webm';
+          } else {
+            console.error('No supported video format found');
+            return null;
+          }
+          
+          options.videoBitsPerSecond = 2500000;
+          options.audioBitsPerSecond = 128000;
+        } else if (trackType === 'screen') {
+          // Screen recording (video only, no audio from screen)
+          if (stream.getVideoTracks().length === 0) {
+            console.warn('No video tracks available for screen recording');
+            return null;
+          }
 
-      recorder.ondataavailable = async (event) => {
-        if (event.data.size > 0) {
-          const sequence = recorders.current[trackType].sequence++;
-          recorders.current[trackType].totalChunks++;
+          recordStream = createVideoOnlyStream(stream);
 
-          // Update total count
-          setUploadProgress((prev) => ({
-            ...prev,
-            [trackType]: {
-              ...prev[trackType],
-              total: recorders.current[trackType].totalChunks,
-            },
-          }));
-
-          // Upload chunk immediately (real-time upload)
-          console.log(`📤 Uploading ${trackType} chunk ${sequence}...`);
-          await uploadChunk(trackType, recordingId, sequence, event.data);
+          if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+            options.mimeType = 'video/webm;codecs=vp9';
+          } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) {
+            options.mimeType = 'video/webm;codecs=vp8';
+          } else if (MediaRecorder.isTypeSupported('video/webm')) {
+            options.mimeType = 'video/webm';
+          } else {
+            console.error('No supported video format found');
+            return null;
+          }
+          
+          options.videoBitsPerSecond = 3000000;
         }
-      };
 
-      recorder.onerror = (event) => {
-        console.error(`Recorder error for ${trackType}:`, event);
-      };
+        console.log(`Creating ${trackType} recorder with:`, {
+          mimeType: options.mimeType,
+          audioTracks: recordStream.getAudioTracks().length,
+          videoTracks: recordStream.getVideoTracks().length,
+        });
 
-      recorder.onstop = () => {
-        console.log(`${trackType} recorder stopped`);
-      };
+        const recorder = new MediaRecorder(recordStream, options);
 
-      return recorder;
+        recorder.ondataavailable = async (event) => {
+          if (event.data.size > 0) {
+            const sequence = recorders.current[trackType].sequence++;
+            recorders.current[trackType].totalChunks++;
+
+            // Update total count
+            setUploadProgress((prev) => ({
+              ...prev,
+              [trackType]: {
+                ...prev[trackType],
+                total: recorders.current[trackType].totalChunks,
+              },
+            }));
+
+            // Upload chunk immediately
+            console.log(`📤 Uploading ${trackType} chunk ${sequence} (${event.data.size} bytes)...`);
+            await uploadChunk(trackType, recordingId, sequence, event.data);
+          }
+        };
+
+        recorder.onerror = (event: Event) => {
+          console.error(`Recorder error for ${trackType}:`, event);
+        };
+
+        recorder.onstop = () => {
+          console.log(`${trackType} recorder stopped`);
+        };
+
+        return recorder;
+      } catch (error) {
+        console.error(`Error creating ${trackType} recorder:`, error);
+        return null;
+      }
     },
     [apiUrl]
   );
@@ -177,6 +248,12 @@ export function useRecording(
   // Start recording
   const startRecording = useCallback(async () => {
     try {
+      console.log('Starting recording with streams:', {
+        audio: !!audioStream,
+        video: !!videoStream,
+        screen: !!screenStream,
+      });
+
       // Start recording via API to get recording IDs
       const response = await fetch(`${apiUrl}/recordings/start`, {
         method: 'POST',
@@ -197,37 +274,46 @@ export function useRecording(
       }
 
       const data = await response.json();
-      const recordingIds = data.recording_ids; // { audio: 'uuid', video: 'uuid', screen: 'uuid' }
+      const recordingIds = data.recording_ids;
 
       // Create and start recorders for each active stream
       if (audioStream && recordingIds.audio) {
         const recorder = createRecorder('audio', audioStream, recordingIds.audio);
-        recorders.current.audio.recorder = recorder;
-        recorders.current.audio.recordingId = recordingIds.audio;
-        recorders.current.audio.sequence = 0;
-        recorders.current.audio.uploadedChunks = 0;
-        recorders.current.audio.totalChunks = 0;
-        recorder.start(CHUNK_INTERVAL);
+        if (recorder) {
+          recorders.current.audio.recorder = recorder;
+          recorders.current.audio.recordingId = recordingIds.audio;
+          recorders.current.audio.sequence = 0;
+          recorders.current.audio.uploadedChunks = 0;
+          recorders.current.audio.totalChunks = 0;
+          recorder.start(CHUNK_INTERVAL);
+          console.log('✓ Audio recorder started');
+        }
       }
 
       if (videoStream && recordingIds.video) {
         const recorder = createRecorder('video', videoStream, recordingIds.video);
-        recorders.current.video.recorder = recorder;
-        recorders.current.video.recordingId = recordingIds.video;
-        recorders.current.video.sequence = 0;
-        recorders.current.video.uploadedChunks = 0;
-        recorders.current.video.totalChunks = 0;
-        recorder.start(CHUNK_INTERVAL);
+        if (recorder) {
+          recorders.current.video.recorder = recorder;
+          recorders.current.video.recordingId = recordingIds.video;
+          recorders.current.video.sequence = 0;
+          recorders.current.video.uploadedChunks = 0;
+          recorders.current.video.totalChunks = 0;
+          recorder.start(CHUNK_INTERVAL);
+          console.log('✓ Video recorder started');
+        }
       }
 
       if (screenStream && recordingIds.screen) {
         const recorder = createRecorder('screen', screenStream, recordingIds.screen);
-        recorders.current.screen.recorder = recorder;
-        recorders.current.screen.recordingId = recordingIds.screen;
-        recorders.current.screen.sequence = 0;
-        recorders.current.screen.uploadedChunks = 0;
-        recorders.current.screen.totalChunks = 0;
-        recorder.start(CHUNK_INTERVAL);
+        if (recorder) {
+          recorders.current.screen.recorder = recorder;
+          recorders.current.screen.recordingId = recordingIds.screen;
+          recorders.current.screen.sequence = 0;
+          recorders.current.screen.uploadedChunks = 0;
+          recorders.current.screen.totalChunks = 0;
+          recorder.start(CHUNK_INTERVAL);
+          console.log('✓ Screen recorder started');
+        }
       }
 
       setIsRecording(true);
@@ -302,8 +388,8 @@ export function useRecording(
         }
       });
 
-      // Wait a bit for final chunks to upload
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Wait for final chunks to upload
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Notify backend
       await fetch(`${apiUrl}/recordings/stop`, {
@@ -335,7 +421,8 @@ export function useRecording(
   // Check if uploads are complete
   const areUploadsComplete = useCallback(() => {
     return Object.values(recorders.current).every(
-      ({ uploadedChunks, totalChunks }) => uploadedChunks >= totalChunks
+      ({ uploadedChunks, totalChunks, recorder }) => 
+        !recorder || uploadedChunks >= totalChunks
     );
   }, []);
 
