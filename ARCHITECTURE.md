@@ -239,19 +239,11 @@ This narrative equips both students and professors with a comprehensive, story-d
 - ✅ PostgreSQL database (port 5432) - configured, schema designed
 - ✅ Redis cache (port 6379) - configured
 
-### 🚧 Designed but Not Yet Implemented
+### Future Roadmap
 
-**Media Processing Worker & Service:**
-- 📋 FFmpeg-based chunk stitching
-- 📋 RabbitMQ consumer for `recording.stopped` events
-- 📋 Transcoding and format conversion
-- 📋 Upload processed files to MinIO `processed/` bucket
-- 📋 Publishing `recording.processed` events
-
-**Database Integration:**
-- 📋 PostgreSQL repository pattern (currently using in-memory storage)
-- 📋 Database migrations and schema setup
-- 📋 Session/Recording/Chunk persistence
+**Platform Maturity:**
+- dY"< Harden TURN/ICE infrastructure for production deployments
+- dY"< Extend analytics & user management capabilities
 
 **Advanced Features:**
 - 📋 Host controls (mute participants, kick users)
@@ -276,7 +268,7 @@ This narrative equips both students and professors with a comprehensive, story-d
 │           Recording Service (Port 8001)                      │
 │  ✅ Session API      ✅ Recording API                        │
 │  ✅ Upload API       ✅ WebSocket Signaling                  │
-│  ✅ MinIO Storage    ⚠️ In-Memory DB (temporary)            │
+│  ✅ MinIO Storage    ⚠️ PostgreSQL Metadata Store            │
 └───────────────────────────┬──────────────────────────────────┘
                             │
                    ┌────────┴────────┐
@@ -289,25 +281,14 @@ This narrative equips both students and professors with a comprehensive, story-d
 
 ### 📝 Implementation Notes
 
-**Storage Strategy:**
-Currently using **in-memory dictionaries** (`sessions_db`, `recordings_db`) for rapid prototyping. Data is lost on service restart. PostgreSQL schema is fully designed and ready for migration (see Section 5.1 hexagonal view).
+**Storage & Metadata Strategy:**
+Recording, chunk, and processing metadata persist in PostgreSQL via the `RecordingMetadataStore`. Upload and recording routes invoke application services, then synchronise aggregates to the database while pushing live `recording-status` and `recording-progress` broadcasts back through WebSockets. MinIO remains the source of truth for binary media, but all lifecycle data survives restarts and supports reporting.
 
-**Processing Workaround:**
-The Processing Service architecture is fully designed but not implemented. Chunks are stored in MinIO but not yet automatically stitched. Manual FFmpeg processing can be done:
-
-```bash
-# Download chunks from MinIO
-mc cp --recursive local/recordings/sessions/{session_id} ./chunks/
-
-# Create concat manifest
-ls chunks/*.webm | awk '{print "file '\''" $0 "'\''"}' > concat.txt
-
-# Stitch with FFmpeg (lossless copy)
-ffmpeg -f concat -safe 0 -i concat.txt -c copy output.webm
-```
+**Processing Pipeline:**
+The media-processing worker listens on the processing queue, downloads chunk manifests, executes FFmpeg stitching with exponential backoff, uploads processed artefacts under `processed/`, and updates PostgreSQL with `queued → in_progress → completed/failed` transitions. Failures publish `recording.failed` events so downstream systems can react.
 
 **Event-Driven Foundation:**
-RabbitMQ infrastructure is operational. The recording service can publish events, but the processing worker consumer is not yet implemented. This demonstrates the architectural pattern while leaving room for future enhancement.
+RabbitMQ now sits at the centre of two flows: recording stop events that enqueue processing commands, and worker-emitted `recording.processed` notifications that are fanned out via the shared event exchange. This preserves the decoupled, hexagonal pattern while providing demonstrable end-to-end automation.
 
 ---
 
@@ -326,7 +307,14 @@ See **`TESTING_GUIDE.md`** for comprehensive end-to-end testing procedures inclu
 **Status**: ✅ **MVP Operational - Full Architecture Demonstrated**
 
 **Next Phase**:
-1. Migrate in-memory storage to PostgreSQL (schema complete)
+1. Harden observability and SLA monitoring for services
 2. Implement Processing Worker and Service (design complete)
 3. Add authentication and advanced host controls
 4. Scale testing with multiple concurrent sessions
+
+
+
+
+
+
+

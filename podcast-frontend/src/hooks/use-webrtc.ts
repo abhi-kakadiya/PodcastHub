@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
 interface WebRTCConfig {
   sessionId: string;
   participantId: string;
   isHost: boolean;
+  onSignalMessage?: (message: any) => void;
 }
 
 interface MediaStreams {
@@ -23,7 +24,7 @@ interface MediaControls {
 }
 
 export function useWebRTC(config: WebRTCConfig) {
-  const { sessionId, participantId, isHost } = config;
+  const { sessionId, participantId, isHost, onSignalMessage } = config;
 
   const [streams, setStreams] = useState<MediaStreams>({
     localStream: null,
@@ -44,16 +45,34 @@ export function useWebRTC(config: WebRTCConfig) {
   const pendingCandidates = useRef<RTCIceCandidate[]>([]);
 
   // WebRTC configuration with multiple STUN/TURN servers
-  const rtcConfig: RTCConfiguration = {
-    iceServers: [
+  const rtcConfig: RTCConfiguration = useMemo(() => {
+    const iceServers: RTCIceServer[] = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-    ],
-    iceCandidatePoolSize: 10,
-  };
+    ];
+
+    const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+    const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
+    const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+
+    if (turnUrl) {
+      const turnServer: RTCIceServer = { urls: turnUrl };
+      if (turnUsername && turnCredential) {
+        turnServer.username = turnUsername;
+        turnServer.credential = turnCredential;
+      }
+      iceServers.push(turnServer);
+      console.log('dY"O Using TURN server for ICE fallback');
+    }
+
+    return {
+      iceServers,
+      iceCandidatePoolSize: 10,
+    };
+  }, []);
 
   // Initialize local media stream
   const initializeLocalStream = useCallback(async () => {
@@ -297,7 +316,7 @@ export function useWebRTC(config: WebRTCConfig) {
 
     peerConnection.current = pc;
     return pc;
-  }, [sessionId, participantId]);
+  }, [sessionId, participantId, rtcConfig]);
 
   // Initialize WebSocket signaling
   useEffect(() => {
@@ -441,10 +460,10 @@ export function useWebRTC(config: WebRTCConfig) {
               break;
 
             case 'participant-left':
-              console.log('👤 Participant left');
+              console.log('Remote participant disconnected');
               setStreams((prev) => ({ ...prev, remoteStream: null }));
               setIsConnected(false);
-              
+
               if (peerConnection.current) {
                 peerConnection.current.close();
                 peerConnection.current = null;
@@ -452,15 +471,21 @@ export function useWebRTC(config: WebRTCConfig) {
               break;
 
             case 'screen-share-started':
-              console.log('🖥️ Remote screen share started');
+              console.log('Remote screen share started');
               break;
 
             case 'screen-share-stopped':
-              console.log('🖥️ Remote screen share stopped');
+              console.log('Remote screen share stopped');
+              break;
+
+            case 'recording-status':
+            case 'recording-progress':
+              onSignalMessage?.(message);
               break;
 
             default:
-              console.log('❓ Unknown message type:', message.type);
+              onSignalMessage?.(message);
+              console.log('Unhandled signaling message type:', message.type);
           }
         } catch (error) {
           console.error('❌ Error handling message:', error);
@@ -537,7 +562,7 @@ export function useWebRTC(config: WebRTCConfig) {
         peerConnection.current.close();
       }
     };
-  }, [sessionId, participantId, isHost, createPeerConnection, initializeLocalStream]);
+  }, [sessionId, participantId, isHost, onSignalMessage, createPeerConnection, initializeLocalStream]);
 
   const controls: MediaControls = {
     isMicOn,
@@ -555,3 +580,4 @@ export function useWebRTC(config: WebRTCConfig) {
     isConnected,
   };
 }
+

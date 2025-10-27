@@ -22,7 +22,9 @@ import aio_pika
 from src.adapters.outbound.minio_storage import MinIOStorageAdapter
 from src.adapters.outbound.messaging.rabbitmq_publisher import RabbitMQEventPublisher
 from src.domain.events.processing_events import RecordingProcessed
+from src.domain.events import RecordingFailed
 from src.infrastructure.config import get_settings
+from src.infrastructure.persistence import RecordingMetadataStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,8 @@ class MediaProcessingWorker:
             secure=settings.minio_secure,
             bucket_name=settings.minio_bucket,
         )
+        self._metadata_store = RecordingMetadataStore(settings.database_url)
+        self._max_attempts = 3
         self._connection: Optional[aio_pika.RobustConnection] = None
         self._channel: Optional[aio_pika.Channel] = None
         self._queue: Optional[aio_pika.Queue] = None
@@ -58,6 +62,7 @@ class MediaProcessingWorker:
     async def start(self) -> None:
         """Start consuming processing commands indefinitely."""
         await self._event_publisher.connect()
+        await self._metadata_store.initialize()
         self._connection = await aio_pika.connect_robust(self._rabbitmq_url)
         self._channel = await self._connection.channel()
         self._queue = await self._channel.declare_queue(
@@ -76,19 +81,25 @@ class MediaProcessingWorker:
 
     async def _handle_message(self, message: aio_pika.IncomingMessage) -> None:
         """Process a single queue message."""
-        async with message.process(requeue=False):
-            try:
-                payload = json.loads(message.body.decode("utf-8"))
-            except json.JSONDecodeError as exc:
-                logger.error("Invalid processing payload: %s", exc)
-                return
+        try:
+            payload = json.loads(message.body.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            logger.error("Invalid processing payload: %s", exc)
+            await message.ack()
+            return
 
-            try:
-                await self._process_payload(payload)
-            except FileNotFoundError:
-                logger.exception("FFmpeg executable not found on worker host")
-            except Exception as exc:  # pylint: disable=broad-except
-                logger.exception("Failed to process recording payload: %s", exc)
+        attempts = int(payload.get("attempts", 0))
+
+        try:
+            await self._process_payload(payload)
+        except FileNotFoundError:
+            logger.exception("FFmpeg executable not found on worker host")
+            await self._handle_processing_exception(payload, attempts, "ffmpeg executable not found")
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.exception("Failed to process recording payload: %s", exc)
+            await self._handle_processing_exception(payload, attempts, str(exc))
+        finally:
+            await message.ack()
 
     async def _process_payload(self, payload: Dict[str, Any]) -> None:
         """Download chunks, run FFmpeg concat, upload processed output."""
@@ -96,12 +107,16 @@ class MediaProcessingWorker:
         session_id = payload.get("session_id")
         track_type = payload.get("track_type", "audio")
         chunk_objects = payload.get("chunk_objects") or []
-        content_type = payload.get("content_type", "video/webm")
         participant_id = payload.get("participant_id", "")
+        rec_uuid: Optional[UUID] = None
 
         if not recording_id or not session_id:
             logger.error("Processing payload missing session_id or recording_id")
             return
+
+        if self._is_uuid(recording_id):
+            rec_uuid = UUID(recording_id)
+            await self._metadata_store.mark_processing_started(rec_uuid)
 
         if not chunk_objects:
             chunk_objects = self._minio.list_chunks(session_id, recording_id, track_type)
@@ -128,25 +143,34 @@ class MediaProcessingWorker:
             manifest_path = temp_path / "chunks.txt"
             manifest_lines = []
             for chunk_path in local_chunks:
-                sanitized = chunk_path.as_posix().replace('"', '\\"')
-                manifest_lines.append(f'file "{sanitized}"')
+                manifest_lines.append(f"file '{chunk_path.as_posix()}'")
             manifest_path.write_text("\n".join(manifest_lines), encoding="utf-8")
 
-            output_path = temp_path / f"{recording_id}.webm"
-            await self._run_ffmpeg_concat(manifest_path, output_path)
+            output_extension = "mp3" if track_type == "audio" else "mp4"
+            output_path = temp_path / f"{recording_id}.{output_extension}"
+            await self._run_ffmpeg_concat(manifest_path, output_path, track_type)
 
             if not output_path.exists():
                 logger.error("FFmpeg did not produce output for recording %s", recording_id)
                 return
 
             output_bytes = output_path.read_bytes()
+            processed_content_type = "audio/mpeg" if track_type == "audio" else "video/mp4"
             processed_path = self._minio.upload_processed_file(
                 session_id=session_id,
                 recording_id=recording_id,
                 file_data=output_bytes,
-                file_name=f"{track_type}_{recording_id}.webm",
-                content_type=content_type,
+                file_name=f"{track_type}_{recording_id}.{output_extension}",
+                content_type=processed_content_type,
             )
+
+            if rec_uuid:
+                await self._metadata_store.mark_processing_completed(
+                    rec_uuid,
+                    processed_path=processed_path,
+                    chunk_count=len(local_chunks),
+                    size_bytes=len(output_bytes),
+                )
 
             event = RecordingProcessed(
                 recording_id=UUID(recording_id) if self._is_uuid(recording_id) else recording_id,
@@ -158,6 +182,15 @@ class MediaProcessingWorker:
                 size_bytes=len(output_bytes),
             )
             await self._event_publisher.publish(event, routing_key=event.event_type)
+
+            for object_name in chunk_objects:
+                try:
+                    self._minio.delete_chunk(object_name)
+                except Exception as exc:  # pragma: no cover - cleanup best effort
+                    logger.warning("Failed to delete chunk %s: %s", object_name, exc)
+            if rec_uuid:
+                await self._metadata_store.delete_chunks(rec_uuid)
+                await self._metadata_store.mark_chunks_cleaned(rec_uuid)
 
             logger.info(
                 "Recording %s processed successfully (track=%s, size=%s bytes)",
@@ -182,12 +215,14 @@ class MediaProcessingWorker:
 
         return local_paths
 
-    async def _run_ffmpeg_concat(self, manifest_path: Path, output_path: Path) -> None:
+    async def _run_ffmpeg_concat(self, manifest_path: Path, output_path: Path, track_type: str) -> None:
         """Run ffmpeg concat demuxer to stitch media chunks."""
         cmd = [
             "ffmpeg",
             "-loglevel",
             "error",
+            "-fflags",
+            "+genpts",
             "-y",
             "-f",
             "concat",
@@ -195,10 +230,64 @@ class MediaProcessingWorker:
             "0",
             "-i",
             str(manifest_path),
-            "-c",
-            "copy",
-            str(output_path),
         ]
+        track = track_type.lower()
+        if track == "audio":
+            cmd.extend(
+                [
+                    "-map",
+                    "0:a:0",
+                    "-c:a",
+                    "libmp3lame",
+                    "-b:a",
+                    "192k",
+                    "-ar",
+                    "48000",
+                ]
+            )
+        elif track == "screen":
+            cmd.extend(
+                [
+                    "-map",
+                    "0:v:0",
+                    "-an",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "20",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                ]
+            )
+        else:
+            cmd.extend(
+                [
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "0:a:0",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "20",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-movflags",
+                    "+faststart",
+                ]
+            )
+
+        cmd.append(str(output_path))
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -220,6 +309,7 @@ class MediaProcessingWorker:
             self._connection = None
             self._channel = None
             self._queue = None
+        await self._metadata_store.dispose()
 
     @staticmethod
     def _is_uuid(value: Any) -> bool:
@@ -229,3 +319,76 @@ class MediaProcessingWorker:
         except (ValueError, TypeError):
             return False
         return True
+
+    async def _handle_processing_exception(self, payload: Dict[str, Any], attempts: int, reason: str) -> None:
+        """Handle processing errors with retry logic and final failure handling."""
+        attempts += 1
+        recording_id = payload.get("recording_id")
+        session_id = payload.get("session_id", "")
+
+        if attempts <= self._max_attempts:
+            logger.warning(
+                "Retrying processing for recording %s (attempt %s/%s)",
+                recording_id,
+                attempts,
+                self._max_attempts,
+            )
+            payload["attempts"] = attempts
+            await asyncio.sleep(min(2 ** attempts, 30))
+            await self._requeue_payload(payload)
+            return
+
+        logger.error(
+            "Processing failed permanently for recording %s after %s attempts: %s",
+            recording_id,
+            attempts - 1,
+            reason,
+        )
+
+        if recording_id and self._is_uuid(recording_id):
+            rec_uuid = UUID(recording_id)
+            await self._metadata_store.mark_processing_failed(rec_uuid, reason)
+            failure_event = RecordingFailed(
+                recording_id=rec_uuid,
+                session_id=session_id,
+                reason=reason,
+            )
+            await self._event_publisher.publish(failure_event, routing_key=failure_event.event_type)
+
+    async def _requeue_payload(self, payload: Dict[str, Any]) -> None:
+        """Requeue payload back onto processing queue."""
+        if not self._channel or not self._queue:
+            logger.error("Cannot requeue payload: channel or queue not initialised")
+            return
+
+        message = aio_pika.Message(
+            body=json.dumps(payload).encode("utf-8"),
+            content_type="application/json",
+        )
+        await self._channel.default_exchange.publish(
+            message,
+            routing_key=self._queue.name,
+        )
+
+
+async def _run_worker() -> None:
+    """Helper to run the worker until interruption."""
+    worker = MediaProcessingWorker()
+    try:
+        await worker.start()
+    except asyncio.CancelledError:
+        logger.info("MediaProcessingWorker cancellation received")
+    finally:
+        await worker.close()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    try:
+        asyncio.run(_run_worker())
+    except KeyboardInterrupt:
+        logger.info("MediaProcessingWorker interrupted by user")

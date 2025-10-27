@@ -41,7 +41,8 @@ Sarah:
 2. Conducts interview naturally
 3. Both see each other in HD
 4. Dr. Kumar shares presentation slides via screen share
-5. Upload progress shows: 
+5. Recording status cards light up for audio/video/screen with live chunk counts
+6. Upload progress shows: 
    - Audio: 360/360 chunks (100%)
    - Video: 360/360 chunks (100%)
    - Screen: 180/180 chunks (100%)
@@ -62,9 +63,9 @@ Solution:
 ```
 Sarah:
 1. Clicks "Stop Recording"
-2. All chunks automatically uploaded to cloud
-3. Receives notification: "Processing started"
-4. Separate files available:
+2. UI banner flips to "Processing" while the backend worker dequeues jobs
+3. PostgreSQL reflects status transitions: queued → in_progress → completed
+4. Separate files available once `recording.processed` event is emitted:
    - sarah_audio.wav (pristine quality)
    - kumar_audio.wav (pristine quality)  
    - kumar_screen.mp4 (presentation)

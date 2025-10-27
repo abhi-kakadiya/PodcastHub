@@ -116,6 +116,8 @@ python main.py
 
 Verify: http://localhost:8001/docs
 
+> When running via Docker Compose, the recording service connects to PostgreSQL using `POSTGRES_HOST=postgres` (already set in `.env`). If you launch the backend outside Docker, override `POSTGRES_HOST=localhost` so the app can reach the database.
+
 ### 5. Start Frontend
 ```bash
 cd podcast-frontend
@@ -124,6 +126,8 @@ npm run dev
 ```
 
 Verify: http://localhost:3000
+
+> Optional: configure `NEXT_PUBLIC_TURN_URL`, `NEXT_PUBLIC_TURN_USERNAME`, and `NEXT_PUBLIC_TURN_CREDENTIAL` in `podcast-frontend/.env` to enable TURN relays for remote peers.
 
 ### 6. Test End-to-End
 **Browser 1 (Host):**
@@ -138,8 +142,21 @@ Verify: http://localhost:3000
 
 **Host:**
 1. Start Recording
-2. Watch upload progress
+2. Watch upload progress in-app and observe status cards update
 3. Verify chunks in MinIO Console
+
+**Processing Worker:**
+1. In a new terminal run:
+   ```bash
+   cd media-recording-service
+   python -m src.processors.media_processing_worker
+   ```
+2. Stop the recording from the host browser. The worker should automatically pick up the job, retry on transient errors, and emit `recording.processed` events.
+3. Confirm processed assets under `recordings/sessions/<session>/recordings/<recording>/processed/` in MinIO and note that raw chunks are cleaned up afterwards.
+
+**Database Validation:**
+- Inspect `recording_metadata` and `recording_chunks` tables in PostgreSQL (`docker exec -it podcasthub_postgres psql -U podcasthub`).
+- Use the frontend recording status panel to confirm queue → processing → completed transitions sourced from PostgreSQL.
 
 ---
 

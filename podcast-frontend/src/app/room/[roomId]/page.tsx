@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, Monitor, MonitorOff,
@@ -16,6 +16,19 @@ interface UserData {
   roomCode: string;
 }
 
+interface RecordingStatusState {
+  status?: string;
+  processingStatus?: string;
+  recordingId?: string;
+  startedAt?: string;
+  endedAt?: string;
+  progress?: number;
+  uploadedChunks?: number;
+  totalChunks?: number;
+  processedAssetPath?: string;
+  processedAt?: string;
+}
+
 export default function MeetingRoom() {
   const params = useParams();
   const router = useRouter();
@@ -24,6 +37,7 @@ export default function MeetingRoom() {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [recordingStatuses, setRecordingStatuses] = useState<Record<string, RecordingStatusState>>({});
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -39,11 +53,50 @@ export default function MeetingRoom() {
     setUserData(JSON.parse(storedUser));
   }, [router]);
 
+  const handleSignalMessage = useCallback((message: any) => {
+    if (!message || !message.type) return;
+
+    if (message.type === 'recording-status') {
+      const trackKey = message.trackType || message.track_type;
+      if (!trackKey) return;
+
+      setRecordingStatuses((prev) => ({
+        ...prev,
+        [trackKey]: {
+          ...(prev[trackKey] ?? {}),
+          status: message.status ?? prev[trackKey]?.status,
+          recordingId: message.recordingId ?? prev[trackKey]?.recordingId,
+          startedAt: message.startedAt ?? prev[trackKey]?.startedAt,
+          endedAt: message.endedAt ?? prev[trackKey]?.endedAt,
+          processingStatus: message.processingStatus ?? prev[trackKey]?.processingStatus,
+        },
+      }));
+    } else if (message.type === 'recording-progress') {
+      const trackKey = message.track_type || message.trackType;
+      if (!trackKey) return;
+
+      setRecordingStatuses((prev) => ({
+        ...prev,
+        [trackKey]: {
+          ...(prev[trackKey] ?? {}),
+          status: message.status ?? prev[trackKey]?.status,
+          processingStatus: message.processing_status ?? prev[trackKey]?.processingStatus,
+          progress: message.progress_percentage ?? prev[trackKey]?.progress,
+          uploadedChunks: message.uploaded_chunks ?? prev[trackKey]?.uploadedChunks,
+          totalChunks: message.total_chunks ?? prev[trackKey]?.totalChunks,
+          processedAssetPath: message.processed_asset_path ?? prev[trackKey]?.processedAssetPath,
+          processedAt: message.processed_at ?? prev[trackKey]?.processedAt,
+        },
+      }));
+    }
+  }, []);
+
   // WebRTC hook
   const { streams, controls, isConnected } = useWebRTC({
     sessionId: userData?.sessionId || '',
     participantId: userData?.name || '',
     isHost: userData?.role === 'host',
+    onSignalMessage: handleSignalMessage,
   });
 
   // Recording hook - pass localStream for both audio and video
@@ -67,6 +120,9 @@ export default function MeetingRoom() {
     streams.localStream, // Video source (same stream, hook will separate tracks)
     streams.screenStream  // Screen share
   );
+
+  const statusTracks: Array<'audio' | 'video' | 'screen'> = ['audio', 'video', 'screen'];
+  const hasRecordingState = statusTracks.some((track) => !!recordingStatuses[track]);
 
   // Recording timer
   useEffect(() => {
@@ -261,6 +317,59 @@ export default function MeetingRoom() {
           </div>
         )}
 
+        {(hasRecordingState || isRecording) && (
+          <div className="bg-gray-800/50 backdrop-blur rounded-xl border border-gray-700 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Circle className="w-5 h-5 text-emerald-400" />
+              <span className="text-white font-medium">Recording Status</span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {statusTracks.map((track) => {
+                const statusInfo = recordingStatuses[track];
+                const statusLabel = statusInfo?.status ? statusInfo.status.toUpperCase() : 'IDLE';
+                const processingLabel = statusInfo?.processingStatus ? statusInfo.processingStatus.toUpperCase() : 'PENDING';
+                const progress = statusInfo?.progress ?? 0;
+                const hasProgress = statusInfo?.progress !== undefined;
+
+                return (
+                  <div key={track} className="rounded-lg border border-gray-700 bg-gray-900/30 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-400 capitalize">{track}</span>
+                      <span className="text-sm font-semibold text-white">{statusLabel}</span>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-400 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span>Processing</span>
+                        <span className="font-medium text-purple-300">{processingLabel}</span>
+                      </div>
+                      {hasProgress && (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <span>Progress</span>
+                            <span>{Math.round(progress)}%</span>
+                          </div>
+                          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-emerald-400 to-purple-500 transition-all"
+                              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 text-right text-[10px] text-gray-500">
+                            {(statusInfo?.uploadedChunks ?? 0)}/{statusInfo?.totalChunks ?? 0} chunks
+                          </div>
+                        </div>
+                      )}
+                      {statusInfo?.processedAssetPath && (
+                        <p className="text-emerald-400 font-medium">Processed file ready</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Upload Progress */}
         {isRecording && (
           <div className="bg-gray-800/50 backdrop-blur rounded-xl border border-gray-700 p-4">
@@ -433,3 +542,5 @@ export default function MeetingRoom() {
     </div>
   );
 }
+
+

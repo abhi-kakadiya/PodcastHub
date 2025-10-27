@@ -97,6 +97,10 @@ class Settings(BaseSettings):
         default="podcasthub",
         env="POSTGRES_DATABASE",
     )
+    persistence_backend: str = Field(
+        default="postgres",
+        env="PERSISTENCE_BACKEND",
+    )
 
     # Redis settings
     redis_host: str = Field(
