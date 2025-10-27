@@ -23,6 +23,8 @@ from src.adapters.inbound.rest.health_api import router as health_router
 from src.adapters.inbound.websocket import websocket_router
 from src.adapters.inbound.http.session_routes import router as session_router
 from src.adapters.inbound.http.recording_routes import router as recording_routes_router
+from src.adapters.inbound.http.upload_routes import router as upload_routes_router
+from src.adapters.inbound.http.websocket_handler import router as websocket_handler_router
 from src.infrastructure.config import get_settings
 from src.infrastructure.dependencies import initialize_dependencies, cleanup_dependencies
 
@@ -112,9 +114,11 @@ app.add_middleware(
 # Include routers
 app.include_router(session_router)  # New simplified session routes
 app.include_router(recording_routes_router)  # New simplified recording routes
+app.include_router(upload_routes_router)  # New simplified upload routes with MinIO
+app.include_router(websocket_handler_router)  # New WebSocket signaling for WebRTC
 app.include_router(recording_router)  # Original complex recording routes
-app.include_router(upload_router)
-app.include_router(websocket_router)
+app.include_router(upload_router)  # Original complex upload routes
+app.include_router(websocket_router)  # Original WebSocket routes
 app.include_router(health_router)
 
 
