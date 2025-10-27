@@ -96,22 +96,26 @@ services:
     networks:
       - podcasthub
 
-  media-processing-worker:
-    build:
-      context: ./media-recording-service
-    container_name: podcasthub_media_worker
-    command: ["python", "-m", "processors.media_processing_worker"]
-    env_file:
-      - ./media-recording-service/.env
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      MINIO_ENDPOINT: minio:9000
-    depends_on:
-      - rabbitmq
-      - minio
-    restart: unless-stopped
-    networks:
-      - podcasthub
+  # media-processing-worker:
+  #   # DISABLED: This service was causing ModuleNotFoundError
+  #   # Root cause: Incorrect module path - should be "src.processors.media_processing_worker"
+  #   # Additionally, this is redundant with media-processing-service below
+  #   # Keeping commented for reference
+  #   build:
+  #     context: ./media-recording-service
+  #   container_name: podcasthub_media_worker
+  #   command: ["python", "-m", "processors.media_processing_worker"]
+  #   env_file:
+  #     - ./media-recording-service/.env
+  #   environment:
+  #     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  #     MINIO_ENDPOINT: minio:9000
+  #   depends_on:
+  #     - rabbitmq
+  #     - minio
+  #   restart: unless-stopped
+  #   networks:
+  #     - podcasthub
 
   media-processing-service:
     build:
