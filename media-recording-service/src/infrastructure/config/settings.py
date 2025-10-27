@@ -108,6 +108,12 @@ class Settings(BaseSettings):
         env="REDIS_PORT",
     )
 
+    # Media processing queue
+    media_processing_queue: str = Field(
+        default="media.processing.requests",
+        env="MEDIA_PROCESSING_QUEUE",
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
