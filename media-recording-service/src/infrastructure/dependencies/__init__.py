@@ -22,7 +22,6 @@ from src.infrastructure.config import get_settings
 from src.infrastructure.persistence import RecordingMetadataStore, get_recording_metadata_store
 
 
-# Global singletons (in production, use a proper DI container)
 _recording_repository: Optional[RecordingRepositoryPort] = None
 _chunk_repository: Optional[InMemoryChunkRepository] = None
 _upload_repository: Optional[InMemoryUploadRepository] = None
