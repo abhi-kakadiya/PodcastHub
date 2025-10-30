@@ -210,6 +210,49 @@ Problem: WebSocket connection fails
 
 **Goal:** Test P2P between different devices on your home/office network
 
+### ⚠️ IMPORTANT: HTTPS Requirement for Phone/Remote Devices
+
+**Critical Issue:** Modern browsers (Chrome, Safari) **require HTTPS** for camera/microphone access on non-localhost origins.
+
+```
+❌ This won't work on phone:
+http://192.168.x.x:3000  → Camera/mic blocked (insecure context)
+
+✅ This will work:
+https://192.168.x.x:3000 → Camera/mic permissions prompt shown
+```
+
+**Why?** Accessing via IP address like `http://192.168.40.27:3000` from a phone is considered an "insecure context" and browsers block WebRTC media access for security.
+
+**Solution:** You MUST set up HTTPS with self-signed certificates for local network testing.
+
+### Quick Setup (Choose One):
+
+**Option A: Automated Setup (Recommended)**
+```bash
+# Windows users - Run PowerShell as Administrator:
+cd deploy
+.\setup-local-network.ps1
+
+# Linux/Mac users - Use Git Bash:
+cd deploy
+./setup-local-network.sh
+```
+
+This script will:
+- Generate SSL certificates
+- Configure HTTPS server
+- Update environment variables
+- Create firewall rules
+
+**See:** `deploy/README-LOCAL-NETWORK.md` for detailed instructions
+
+**Option B: Manual Setup**
+
+Follow the comprehensive guide: `LOCAL_NETWORK_TESTING.md`
+
+---
+
 ### Step 2.1: Find Your Local IP
 
 ```bash
