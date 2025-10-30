@@ -17,8 +17,8 @@ Behind the scenes every responsibility is isolated inside its own microservice, 
 
 | Persona | Motivation | Architectural Need |
 | --- | --- | --- |
-| Asha – Producer | She wants to run smooth remote interviews without babysitting file transfers. | Reliable session and recording orchestration (Media Recording Service). |
-| Miguel – Guest | He simply wants to join, record, and receive a processed track afterwards. | Low-friction UI with real-time feedback (Next.js Frontend). |
+| Asha  Producer | She wants to run smooth remote interviews without babysitting file transfers. | Reliable session and recording orchestration (Media Recording Service). |
+| Miguel  Guest | He simply wants to join, record, and receive a processed track afterwards. | Low-friction UI with real-time feedback (Next.js Frontend). |
 | Post-Production Engineer | Needs clean stitched assets with provenance. | Deterministic processing pipeline and event notifications (Worker + Processing Service). |
 | Platform Engineer | Must keep the system resilient & scalable for multiple shows. | Containerised microservices with event-driven coordination. |
 
@@ -26,11 +26,11 @@ Behind the scenes every responsibility is isolated inside its own microservice, 
 
 ## 3. Architectural Principles Applied
 
-1. **Microservice Oriented Architecture** – Each domain concern (recording, processing, user experience) is a discrete deployable unit with its own lifecycle.
-2. **Domain-Driven Design** – Core aggregates (`Recording`, `Chunk`, `Upload`) encapsulate invariants. Use cases live in application services, keeping adapters thin.
-3. **Hexagonal (Ports & Adapters)** – Every microservice exposes inbound ports (REST, WebSocket, RabbitMQ consumers) and outbound ports (MinIO, PostgreSQL, FFmpeg). Business logic depends on ports, not frameworks.
-4. **Event-Driven Architecture** – RabbitMQ topic exchanges and work queues deliver decoupled communications (`upload.completed`, `recording.processed`, processing commands).
-5. **Infrastructure as Commodities** – Docker Compose spins up RabbitMQ, MinIO, PostgreSQL, Redis; services inject config via `.env`.
+1. **Microservice Oriented Architecture**  Each domain concern (recording, processing, user experience) is a discrete deployable unit with its own lifecycle.
+2. **Domain-Driven Design**  Core aggregates (`Recording`, `Chunk`, `Upload`) encapsulate invariants. Use cases live in application services, keeping adapters thin.
+3. **Hexagonal (Ports & Adapters)**  Every microservice exposes inbound ports (REST, WebSocket, RabbitMQ consumers) and outbound ports (MinIO, PostgreSQL, FFmpeg). Business logic depends on ports, not frameworks.
+4. **Event-Driven Architecture**  RabbitMQ topic exchanges and work queues deliver decoupled communications (`upload.completed`, `recording.processed`, processing commands).
+5. **Infrastructure as Commodities**  Docker Compose spins up RabbitMQ, MinIO, PostgreSQL, Redis; services inject config via `.env`.
 
 ---
 
@@ -114,13 +114,13 @@ graph LR
 
 | Inbound Adapter | Application Logic | Outbound Adapter |
 | --- | --- | --- |
-| RabbitMQ Consumer (`media.processing.requests`) | `MediaProcessingWorker._process_payload` orchestrates download → manifest → FFmpeg run → upload | MinIO client for chunk retrieval & processed upload |
+| RabbitMQ Consumer (`media.processing.requests`) | `MediaProcessingWorker._process_payload` orchestrates download  manifest  FFmpeg run  upload | MinIO client for chunk retrieval & processed upload |
 | | Domain event `RecordingProcessed` constructed and emitted | RabbitMQ Event Publisher on `recording.processed` |
 | | | FFmpeg CLI invoked via async subprocess |
 
 ### 5.3 Media Processing Service (FastAPI @ :8002)
 
-Primarily an administrative façade: REST endpoints accept job definitions, delegate to processing application services (extensible for future transformations) and query job status. Reuses the same RabbitMQ + MinIO ports to remain consistent with the worker.
+Primarily an administrative faade: REST endpoints accept job definitions, delegate to processing application services (extensible for future transformations) and query job status. Reuses the same RabbitMQ + MinIO ports to remain consistent with the worker.
 
 ---
 
@@ -175,11 +175,11 @@ Operational practices:
 
 ## 8. How the Architecture Serves the Course Objectives
 
-1. **Microservice Isolation** – Each domain service deploys independently, communicates through well-defined contracts, and scales on its own timeline.
-2. **Domain-Driven Storytelling** – Aggregates reflect the language of podcasters: recordings contain chunks, uploads represent the resilience envelope.
-3. **Hexagonal Discipline** – Ports/Adapters ensure we can swap MinIO for S3 or RabbitMQ for another broker without touching core use cases.
-4. **Event-Driven Resilience** – Upload completion and processing outputs are pushed to the queue, allowing late-binding consumers and retries.
-5. **Persistent Storage Strategy** – MinIO captures immutable media, PostgreSQL provides relational metadata, and Docker volumes keep infrastructure state.
+1. **Microservice Isolation**  Each domain service deploys independently, communicates through well-defined contracts, and scales on its own timeline.
+2. **Domain-Driven Storytelling**  Aggregates reflect the language of podcasters: recordings contain chunks, uploads represent the resilience envelope.
+3. **Hexagonal Discipline**  Ports/Adapters ensure we can swap MinIO for S3 or RabbitMQ for another broker without touching core use cases.
+4. **Event-Driven Resilience** - Upload completion and processing outputs are pushed to the queue, allowing late-binding consumers and retries.
+5. **Persistent Storage Strategy** - MinIO captures immutable media, PostgreSQL provides relational metadata, and Docker volumes keep infrastructure state.
 
 ---
 
@@ -196,99 +196,67 @@ This narrative equips both students and professors with a comprehensive, story-d
 
 ## 10. Implementation Status & Practical Details
 
-### ✅ Fully Implemented Components
+### Fully Implemented Components
 
-**Frontend (podcast-frontend/):**
-- ✅ Next.js 14 with App Router and TypeScript
-- ✅ Dark theme with Tailwind CSS (PostCSS configuration)
-- ✅ WebRTC peer-to-peer connections (`use-webrtc.ts`)
-- ✅ Multi-track recording with real-time upload (`use-recording.ts`)
-- ✅ SHA-256 checksum calculation for data integrity
-- ✅ Meeting room UI with video grid and controls
-- ✅ Create/join meeting flows with room codes
-- ✅ Upload progress visualization
-- ✅ Pause/resume recording functionality
+**Frontend (`podcast-frontend/`):**
+- Next.js 14 App Router with TypeScript and Tailwind-based dark theme.
+- WebRTC hook coordinates peer connections, screen capture, and participant controls.
+- Recording hook streams five-second chunks with SHA-256 checksums and upload progress UI.
+- Room creation/join flows issue six-character codes and map host/guest roles.
+- Pause/resume toggles and chunk preview utilities assist quality checks during sessions.
 
-**Backend - Media Recording Service (Port 8001):**
-- ✅ Session Management API (`session_routes.py`)
-  - `POST /api/sessions/create` - Create session with room code
-  - `POST /api/sessions/join` - Join session with room code
-  - `GET /api/sessions/{id}` - Get session details
-- ✅ Recording Management API (`recording_routes.py`)
-  - `POST /api/recordings/start` - Multi-track recording start
-  - `POST /api/recordings/pause` - Pause recording
-  - `POST /api/recordings/resume` - Resume recording
-  - `POST /api/recordings/stop` - Stop recording
-  - `GET /api/recordings/{id}` - Get recording details
-  - `GET /api/recordings/session/{id}` - List session recordings
-- ✅ Upload API (`upload_routes.py`)
-  - `POST /api/uploads/chunk` - Upload chunk with checksum validation
-  - MinIO integration for cloud storage
-  - Hierarchical storage: `sessions/{id}/recordings/{id}/{track}/chunk_*.webm`
-- ✅ WebSocket Signaling (`websocket_handler.py`)
-  - `/ws/{session_id}` - WebRTC signaling endpoint
-  - Broadcast offer/answer/ICE candidates
-  - Session-based connection pools
-- ✅ MinIO Storage Adapter (`minio_storage.py`)
-  - Real-time chunk upload during recording
-  - Organized folder structure per session/participant/track
+**Media Recording Service (`media-recording-service`, port 8001):**
+- Session Management API (`session_routes.py`) supports creating, joining, and fetching sessions.
+- Recording Management API (`recording_routes.py`) governs start/pause/resume/stop and surfaces recording metadata.
+- Upload API (`upload_routes.py`) accepts chunk uploads, verifies checksums, and persists manifest entries.
+- WebSocket signalling hub (`websocket_handler.py`) broadcasts offers, answers, ICE candidates, and status updates.
+- MinIO storage adapter (`minio_storage.py`) organises chunk layout under `sessions/<session>/recordings/<track>/<type>/`.
+- PostgreSQL `RecordingMetadataStore` initialises schema, stores track metadata, and exposes status queries.
+- RabbitMQ publisher (`processing_queue.py`) enqueues `media.processing.requests` when recordings stop.
 
-**Infrastructure (docker-compose.yml):**
-- ✅ RabbitMQ message broker (port 5672, management 15672)
-- ✅ MinIO object storage (API 9000, console 9001)
-- ✅ PostgreSQL database (port 5432) - configured, schema designed
-- ✅ Redis cache (port 6379) - configured
+**Media Processing Worker (`media-processing-worker`):**
+- Robust consumer listening on `media.processing.requests` with automatic RabbitMQ reconnection.
+- Downloads manifests and chunks from MinIO into a temporary workspace and validates checksums.
+- Runs a single FFmpeg pass per track, transcoding audio to MP3 (libmp3lame) and video/screen to MP4 (libx264/AAC) with `-movflags +faststart`.
+- Uploads processed artefacts back to MinIO under `processed/`, updates PostgreSQL status, and deletes raw chunks after successful merge.
+- Emits `recording.processed` or `recording.failed` events with retry metadata for downstream subscribers.
+
+**Infrastructure (`docker-compose.yml`):**
+- RabbitMQ, MinIO, PostgreSQL, and Redis services with persistent Docker volumes and health checks.
+- Container images built from project Dockerfiles bundling FFmpeg, Python 3.11, and Node 18 where required.
+- Environment variables centralised in `.env`; the worker service autostarts alongside dependencies.
 
 ### Future Roadmap
 
 **Platform Maturity:**
-- dY"< Harden TURN/ICE infrastructure for production deployments
-- dY"< Extend analytics & user management capabilities
+- Harden TURN/ICE infrastructure for production deployments.
+- Extend observability, analytics, and user management for cohort reporting.
 
 **Advanced Features:**
-- 📋 Host controls (mute participants, kick users)
-- 📋 Recording library UI for browsing past recordings
-- 📋 User authentication and authorization
-- 📋 Multi-participant support (3+ users)
+- Add host moderation controls (mute, remove, handover).
+- Build a recording library UI for browsing past sessions.
+- Introduce authentication and authorization across surfaces.
+- Support three-or-more participant rooms with selective forwarding.
 
-### 🎯 Current Working Architecture
+### Current Working Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Frontend (Next.js)                        │
-│  - Create/Join Meeting                                       │
-│  - WebRTC Video/Audio                                        │
-│  - Multi-Track Recording                                     │
-│  - Real-Time Chunk Upload                                    │
-└──────────────┬─────────────┬──────────────┬─────────────────┘
-               │             │              │
-         WebSocket      REST API       WebRTC P2P
-               │             │              │
-┌──────────────▼─────────────▼──────────────▼─────────────────┐
-│           Recording Service (Port 8001)                      │
-│  ✅ Session API      ✅ Recording API                        │
-│  ✅ Upload API       ✅ WebSocket Signaling                  │
-│  ✅ MinIO Storage    ⚠️ PostgreSQL Metadata Store            │
-└───────────────────────────┬──────────────────────────────────┘
-                            │
-                   ┌────────┴────────┐
-                   │                 │
-              ┌────▼─────┐     ┌────▼────┐
-              │ RabbitMQ │     │  MinIO  │
-              │ (ready)  │     │ (active)│
-              └──────────┘     └─────────┘
-```
+1. Next.js frontend handles meeting orchestration, WebRTC flows, and chunk uploads with checksum validation.
+2. Media Recording Service (FastAPI) exposes REST/WebSocket ports, persists metadata, and emits RabbitMQ commands.
+3. RabbitMQ broker fan-outs domain events (`upload.completed`, `recording.process.requested`, `recording.processed`, `recording.failed`).
+4. Media Processing Worker consumes processing requests, downloads manifests from MinIO, stitches audio to MP3 and video/screen to MP4, and publishes status updates.
+5. MinIO stores raw chunks under `sessions/<session-id>/recordings/<track-id>/<track-type>/chunk_*.webm` and the processed artefacts under `processed/`.
+6. PostgreSQL tracks recording/session state, processing attempts, and checksum verification, enabling dashboards and recovery flows.
 
-### 📝 Implementation Notes
+### Implementation Notes
 
 **Storage & Metadata Strategy:**
-Recording, chunk, and processing metadata persist in PostgreSQL via the `RecordingMetadataStore`. Upload and recording routes invoke application services, then synchronise aggregates to the database while pushing live `recording-status` and `recording-progress` broadcasts back through WebSockets. MinIO remains the source of truth for binary media, but all lifecycle data survives restarts and supports reporting.
+Recording, chunk, and processing metadata persist in PostgreSQL via the `RecordingMetadataStore`. Upload and recording routes invoke application services, synchronising aggregates to the database while pushing live `recording-status` and `recording-progress` WebSocket updates. MinIO remains the source of truth for media binaries, ensuring restarts do not lose artefacts.
 
 **Processing Pipeline:**
-The media-processing worker listens on the processing queue, downloads chunk manifests, executes FFmpeg stitching with exponential backoff, uploads processed artefacts under `processed/`, and updates PostgreSQL with `queued → in_progress → completed/failed` transitions. Failures publish `recording.failed` events so downstream systems can react.
+The media-processing worker listens on the processing queue, downloads chunk manifests, runs FFmpeg stitching with exponential backoff, uploads processed artefacts (`audio_<id>.mp3`, `video_<id>.mp4`, `screen_<id>.mp4`), and updates PostgreSQL with `queued -> in_progress -> completed/failed` transitions. Failures publish `recording.failed` events so downstream systems can react or retry.
 
 **Event-Driven Foundation:**
-RabbitMQ now sits at the centre of two flows: recording stop events that enqueue processing commands, and worker-emitted `recording.processed` notifications that are fanned out via the shared event exchange. This preserves the decoupled, hexagonal pattern while providing demonstrable end-to-end automation.
+RabbitMQ now sits at the centre of two flows: the recording service enqueues processing commands once recording stops, and the worker emits `recording.processed` notifications that the frontend can relay to participants. This preserves the decoupled, hexagonal pattern while providing demonstrable end-to-end automation.
 
 ---
 
@@ -304,13 +272,19 @@ See **`TESTING_GUIDE.md`** for comprehensive end-to-end testing procedures inclu
 
 ---
 
-**Status**: ✅ **MVP Operational - Full Architecture Demonstrated**
+**Status**:  **MVP Operational - Full Architecture Demonstrated**
 
 **Next Phase**:
 1. Harden observability and SLA monitoring for services
-2. Implement Processing Worker and Service (design complete)
-3. Add authentication and advanced host controls
-4. Scale testing with multiple concurrent sessions
+2. Add authentication and advanced host controls
+3. Scale testing with multiple concurrent sessions
+4. Expand editing / delivery workflows (automatic MP3 exports, publishing integrations)
+
+
+
+
+
+
 
 
 

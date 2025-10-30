@@ -5,14 +5,14 @@
 [![Next.js](https://img.shields.io/badge/next.js-14.0-black)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688)](https://fastapi.tiangolo.com/)
 
-**CAS 735 - Software Design (Fall 2024)**
+**CAS 735 - Software Design (Fall 2025)**
 **McMaster University - Department of Computing and Software**
 
 A production-grade, microservices-based podcast recording platform featuring real-time WebRTC collaboration, multi-track recording, cloud storage, and event-driven architecture.
 
 ---
 
-## 🎯 Overview
+## Overview
 
 PodcastHub is a modern web application that enables distributed teams to record high-quality podcast sessions with real-time video collaboration. Unlike traditional recording solutions, PodcastHub streams recording chunks to cloud storage in real-time, ensuring data resilience and enabling immediate post-processing workflows.
 
@@ -34,24 +34,25 @@ PodcastHub addresses these through:
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 🎙️ Recording Capabilities
+### Recording Capabilities
 - Multi-Track Recording (audio, video, screen share)
 - Real-time upload to MinIO during recording
 - Pause/Resume functionality
 - Host/Guest role-based permissions
 - SHA-256 checksum validation for data integrity
 - Real-time upload progress visualization
+- Automatic post-processing to MP3 (audio) and MP4 (video/screen) with chunk cleanup
 
-### 🎥 Video Collaboration
+### Video Collaboration
 - WebRTC Peer-to-Peer connections
 - HD Quality (1080p @ 30fps, 48kHz audio)
 - Screen sharing support
 - Individual media controls (mic, camera, screen)
 - Join via 6-character room codes
 
-### 🏗️ Technical Excellence
+### Technical Excellence
 - Hexagonal Architecture (Ports & Adapters)
 - Event-Driven with RabbitMQ
 - Microservices-based design
@@ -60,7 +61,7 @@ PodcastHub addresses these through:
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 ### Frontend
 - **Next.js 14** - React framework with App Router
@@ -86,7 +87,7 @@ PodcastHub addresses these through:
 
 ---
 
-## 🚀 Quick Start (5 Minutes)
+## Quick Start (5 Minutes)
 
 ### 1. Clone Repository
 ```bash
@@ -99,6 +100,8 @@ cd CAS-735-Project
 docker-compose up -d
 docker-compose ps  # Verify all services running
 ```
+
+> Docker Compose starts RabbitMQ, MinIO, PostgreSQL, Redis, the recording API, and the media-processing worker. After worker code changes run `docker compose build media-processing-worker && docker compose up -d media-processing-worker` to refresh the container.
 
 ### 3. Create MinIO Bucket
 1. Open http://localhost:9001
@@ -132,12 +135,12 @@ Verify: http://localhost:3000
 ### 6. Test End-to-End
 **Browser 1 (Host):**
 1. Go to http://localhost:3000
-2. Create Meeting → Enter name "Alice"
+2. Create Meeting  Enter name "Alice"
 3. Note room code
 
 **Browser 2 (Guest):**
 1. Open http://localhost:3000 (new window/incognito)
-2. Join Meeting → Enter room code
+2. Join Meeting  Enter room code
 3. See each other's video connect
 
 **Host:**
@@ -146,94 +149,90 @@ Verify: http://localhost:3000
 3. Verify chunks in MinIO Console
 
 **Processing Worker:**
-1. In a new terminal run:
-   ```bash
-   cd media-recording-service
-   python -m src.processors.media_processing_worker
-   ```
-2. Stop the recording from the host browser. The worker should automatically pick up the job, retry on transient errors, and emit `recording.processed` events.
-3. Confirm processed assets under `recordings/sessions/<session>/recordings/<recording>/processed/` in MinIO and note that raw chunks are cleaned up afterwards.
+1. Tail logs with `docker compose logs -f media-processing-worker` to observe queue consumption (or run `python -m src.processors.media_processing_worker` locally if developing outside Docker).
+2. Stop the recording from the host browser; the worker automatically downloads manifests, retries on transient errors, and emits `recording.processed` events.
+3. Confirm processed assets under `recordings/sessions/<session>/recordings/<recording>/processed/` in MinIO (`audio_<id>.mp3`, `video_<id>.mp4`, `screen_<id>.mp4`) and note that raw chunks are cleaned up afterwards.
 
 **Database Validation:**
 - Inspect `recording_metadata` and `recording_chunks` tables in PostgreSQL (`docker exec -it podcasthub_postgres psql -U podcasthub`).
-- Use the frontend recording status panel to confirm queue → processing → completed transitions sourced from PostgreSQL.
+- Use the frontend recording status panel to confirm `queued -> processing -> completed/failed` transitions sourced from PostgreSQL.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 CAS-735-Project/
-├── media-recording-service/          # Backend (FastAPI)
-│   ├── src/
-│   │   ├── domain/                   # Business logic
-│   │   │   ├── models/              # Recording, Session, Chunk
-│   │   │   └── exceptions/
-│   │   ├── application/              # Use cases
-│   │   │   ├── services/
-│   │   │   └── ports/
-│   │   ├── adapters/                 # Interface adapters
-│   │   │   ├── inbound/             # REST, WebSocket
-│   │   │   │   └── http/            # Session, Recording, Upload routes
-│   │   │   └── outbound/            # MinIO, RabbitMQ
-│   │   └── infrastructure/           # Config, DI
-│   └── main.py
-│
-├── podcast-frontend/                 # Frontend (Next.js)
-│   ├── src/
-│   │   ├── app/                      # Pages
-│   │   │   ├── page.tsx             # Landing
-│   │   │   ├── create/              # Create meeting
-│   │   │   ├── join/                # Join meeting
-│   │   │   └── room/[roomId]/       # Meeting room
-│   │   └── hooks/
-│   │       ├── use-webrtc.ts        # WebRTC peer connections
-│   │       └── use-recording.ts     # Recording with upload
-│   └── package.json
-│
-├── docker-compose.yml                # Infrastructure
-├── ARCHITECTURE.md                   # Architecture doc
-├── TESTING_GUIDE.md                  # Testing procedures
-├── SCENARIO.md                       # User scenarios
-└── README.md                         # This file
+ media-recording-service/          # Backend (FastAPI)
+    src/
+       domain/                   # Business logic
+          models/              # Recording, Session, Chunk
+          exceptions/
+       application/              # Use cases
+          services/
+          ports/
+       adapters/                 # Interface adapters
+          inbound/             # REST, WebSocket
+             http/            # Session, Recording, Upload routes
+          outbound/            # MinIO, RabbitMQ
+       infrastructure/           # Config, DI
+    main.py
+
+ podcast-frontend/                 # Frontend (Next.js)
+    src/
+       app/                      # Pages
+          page.tsx             # Landing
+          create/              # Create meeting
+          join/                # Join meeting
+          room/[roomId]/       # Meeting room
+       hooks/
+           use-webrtc.ts        # WebRTC peer connections
+           use-recording.ts     # Recording with upload
+    package.json
+
+ docker-compose.yml                # Infrastructure
+ ARCHITECTURE.md                   # Architecture doc
+ TESTING_GUIDE.md                  # Testing procedures
+ SCENARIO.md                       # User scenarios
+ README.md                         # This file
 ```
 
 ---
 
-## 🏛️ Architecture
+## Architecture
 
 ### Hexagonal Architecture (Ports & Adapters)
 
 ```
-┌─────────────────────────────────────────┐
-│           Domain Layer                  │
-│  Recording | Session | Chunk           │
-└──────────────────┬──────────────────────┘
-                   │
-┌──────────────────┴──────────────────────┐
-│        Application Layer                │
-│  RecordingService | UploadService       │
-└────────┬────────────────────┬───────────┘
-         │                    │
-┌────────┴────────┐  ┌────────┴────────┐
-│ Inbound         │  │ Outbound        │
-│ Adapters        │  │ Adapters        │
-│ • REST API      │  │ • MinIO         │
-│ • WebSocket     │  │ • RabbitMQ      │
-└─────────────────┘  └─────────────────┘
+
+           Domain Layer                  
+  Recording | Session | Chunk           
+
+                   
+
+        Application Layer                
+  RecordingService | UploadService       
+
+                             
+  
+ Inbound            Outbound        
+ Adapters           Adapters        
+  REST API          MinIO         
+  WebSocket         RabbitMQ      
+  
 ```
 
 ### Data Flow
-1. Session Creation → Room code generated
-2. WebRTC Signaling → Peer connection established
-3. Recording Start → IDs created for tracks
-4. Chunk Capture → 5s chunks with SHA-256
-5. Real-time Upload → MinIO storage
-6. Progress Update → Frontend visualization
+1. Session Creation  Room code generated
+2. WebRTC Signaling  Peer connection established
+3. Recording Start  IDs created for tracks
+4. Chunk Capture  5s chunks with SHA-256
+5. Real-time Upload  MinIO storage
+6. Progress Update  Frontend visualization
 
 ---
 
-## 📚 API Documentation
+## API Documentation
 
 ### Session Management
 ```http
@@ -241,14 +240,14 @@ POST /api/sessions/create
 {
   "host_id": "Alice"
 }
-→ { "session_id": "...", "room_code": "ABC123" }
+ { "session_id": "...", "room_code": "ABC123" }
 
 POST /api/sessions/join
 {
   "room_code": "ABC123",
   "participant_id": "Bob"
 }
-→ { "session_id": "...", "room_code": "ABC123" }
+ { "session_id": "...", "room_code": "ABC123" }
 ```
 
 ### Recording
@@ -259,7 +258,7 @@ POST /api/recordings/start
   "participant_id": "Alice",
   "track_types": ["audio", "video", "screen"]
 }
-→ { "recording_ids": {"audio": "...", "video": "...", "screen": "..."} }
+ { "recording_ids": {"audio": "...", "video": "...", "screen": "..."} }
 ```
 
 ### Upload
@@ -270,7 +269,7 @@ Form Data:
 - sequence
 - checksum (SHA-256)
 - chunk_file (binary)
-→ { "chunk_id": "...", "minio_path": "sessions/.../chunk_00000.webm" }
+ { "chunk_id": "...", "minio_path": "sessions/.../chunk_00000.webm" }
 ```
 
 ### WebSocket Signaling
@@ -286,7 +285,7 @@ Messages:
 
 ---
 
-## 🧪 Testing
+## Testing
 
 See **[TESTING_GUIDE.md](TESTING_GUIDE.md)** for comprehensive testing procedures.
 
@@ -305,7 +304,7 @@ npm run dev --prefix podcast-frontend &
 
 ---
 
-## 📊 Performance
+## Performance
 
 | Metric | Value |
 |--------|-------|
@@ -317,7 +316,7 @@ npm run dev --prefix podcast-frontend &
 
 ---
 
-## 🔒 Security
+## Security
 
 **Implemented:**
 - SHA-256 checksums for integrity
@@ -334,13 +333,13 @@ npm run dev --prefix podcast-frontend &
 
 ---
 
-## 🔮 Future Enhancements
+## Future Enhancements
 
 ### Short Term
-- [ ] FFmpeg media processing service
-- [ ] PostgreSQL persistence
-- [ ] Recording library UI
-- [ ] Error recovery/retry
+- [ ] Harden TURN/TLS infrastructure for production NAT traversal
+- [ ] Ship recording library UI with download/share workflows
+- [ ] Add observability dashboards (metrics, tracing, alerting)
+- [ ] Automate multi-minute end-to-end regression tests
 
 ### Long Term
 - [ ] Multi-participant (3+)
@@ -351,16 +350,15 @@ npm run dev --prefix podcast-frontend &
 
 ---
 
-## 📄 Documentation
+## Documentation
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete architecture design
 - **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Testing procedures
 - **[SCENARIO.md](SCENARIO.md)** - User scenarios
-- **[endtoendreport.tex](endtoendreport.tex)** - Academic report
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 ```bash
 git checkout -b feature/your-feature
@@ -372,19 +370,19 @@ git push origin feature/your-feature
 
 ---
 
-## 📄 License
+## License
 
 MIT License - see LICENSE file
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 **Academic:**
 - Course: CAS 735 - Software Design
 - Institution: McMaster University
 - Department: Computing and Software
-- Semester: Fall 2024
+- Semester: Fall 2025
 
 **Inspiration:**
 - Riverside.fm (UI/UX)
@@ -393,36 +391,18 @@ MIT License - see LICENSE file
 
 ---
 
-## 📧 Contact
+## Contact
 
-**Abhishek Kakadiya**
+**Abhi Kakadiya**
 McMaster University
-Email: kakadiya@mcmaster.ca
+Email: kakadia@mcmaster.ca
 GitHub: [@abhi-kakadiya](https://github.com/abhi-kakadiya)
 
 ---
 
-## 📊 Project Status
-
-**Version**: 1.0.0
-**Status**: ✅ Production Ready
-**Last Updated**: October 27, 2024
-
-### Milestones
-- [x] Architecture design (Week 1-2)
-- [x] Core recording (Week 3-4)
-- [x] WebRTC integration (Week 5-6)
-- [x] MinIO upload (Week 7-8)
-- [x] Frontend UI (Week 9-10)
-- [x] Testing & docs (Week 11-12)
-
----
-
-<div align="center">
-
-**Built with ❤️ for CAS 735 - Software Design**
-
-[Report Bug](https://github.com/abhi-kakadiya/CAS-735-Project/issues) ·
+[Report Bug](https://github.com/abhi-kakadiya/CAS-735-Project/issues) 
 [Documentation](https://github.com/abhi-kakadiya/CAS-735-Project)
 
 </div>
+
+
