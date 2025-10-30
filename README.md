@@ -91,7 +91,8 @@ PodcastHub addresses these through:
 
 ### Main Guides
 - **[QUICK_START.md](QUICK_START.md)** - Get running locally in 5 minutes
-- **[STEP_BY_STEP_LOCAL_NETWORK_TESTING.md](STEP_BY_STEP_LOCAL_NETWORK_TESTING.md)** - ⭐ Test on WiFi (laptop + phone) - **Start Here!**
+- **[END_TO_END_TESTING_GUIDE.md](END_TO_END_TESTING_GUIDE.md)** - 🔬 **Complete testing with debugging** - **Recommended!**
+- **[STEP_BY_STEP_LOCAL_NETWORK_TESTING.md](STEP_BY_STEP_LOCAL_NETWORK_TESTING.md)** - Test on WiFi (laptop + phone)
 - **[PUBLIC_DEPLOYMENT.md](PUBLIC_DEPLOYMENT.md)** - Complete guide for deploying to production
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and architecture details
 - **[SCENARIO.md](SCENARIO.md)** - User scenarios and workflows
