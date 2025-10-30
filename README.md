@@ -87,7 +87,18 @@ PodcastHub addresses these through:
 
 ---
 
+## 📚 Documentation
+
+- **[QUICK_START.md](QUICK_START.md)** - Get running locally in 5 minutes
+- **[PUBLIC_DEPLOYMENT.md](PUBLIC_DEPLOYMENT.md)** - Complete guide for deploying to production
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and architecture details
+- **[SCENARIO.md](SCENARIO.md)** - User scenarios and workflows
+
+---
+
 ## Quick Start (5 Minutes)
+
+**👉 For detailed setup instructions, see [QUICK_START.md](QUICK_START.md)**
 
 ### 1. Clone Repository
 ```bash

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     )
 
     # CORS settings
+    # For production, set CORS_ORIGINS env var to your actual domain(s)
+    # Example: CORS_ORIGINS=["https://yourapp.com","https://www.yourapp.com"]
+    # For development with wildcard (less secure): CORS_ORIGINS=["*"]
     cors_origins: list[str] = Field(
         default=["http://localhost:3000", "http://localhost:8080"],
         env="CORS_ORIGINS",
