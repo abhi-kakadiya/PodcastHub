@@ -1,0 +1,20 @@
+<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="6" y1="4" x2="30" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4338CA"/>
+      <stop offset="100%" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="8" y1="12" x2="30" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F9FAFB" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#E0E7FF" stop-opacity="0.7"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(18 18) scale(11)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E1B4B" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#0B1020" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="36" height="36" rx="12" fill="url(#bg)"/>
+  <circle cx="18" cy="18" r="14" fill="url(#glow)"/>
+  <path d="M8 20C9.2 14 11.6 14 12.8 20C14 26 16.4 26 17.6 20C18.8 14 21.2 14 22.4 20C23.6 26 26 26 27.2 20C28.4 14 30.8 14 32 20" fill="none" stroke="url(#wave)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="25" cy="12" r="2" fill="#C4B5FD" fill-opacity="0.85"/>
+</svg>
