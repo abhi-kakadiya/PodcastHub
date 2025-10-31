@@ -87,31 +87,7 @@ PodcastHub addresses these through:
 
 ---
 
-## 📚 Documentation
-
-### Main Guides
-- **[QUICK_START.md](QUICK_START.md)** - Get running locally in 5 minutes
-- **[END_TO_END_TESTING_GUIDE.md](END_TO_END_TESTING_GUIDE.md)** - 🔬 **Complete testing with debugging** - **Recommended!**
-- **[STEP_BY_STEP_LOCAL_NETWORK_TESTING.md](STEP_BY_STEP_LOCAL_NETWORK_TESTING.md)** - Test on WiFi (laptop + phone)
-- **[PUBLIC_DEPLOYMENT.md](PUBLIC_DEPLOYMENT.md)** - Complete guide for deploying to production
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and architecture details
-- **[SCENARIO.md](SCENARIO.md)** - User scenarios and workflows
-
-### Reference Documentation
-- **[LOCAL_NETWORK_TESTING.md](LOCAL_NETWORK_TESTING.md)** - Detailed reference with troubleshooting
-
-### Helper Scripts & Tools
-- **[deploy/README-LOCAL-NETWORK.md](deploy/README-LOCAL-NETWORK.md)** - Quick reference for local network testing
-- **[deploy/setup-local-network.ps1](deploy/setup-local-network.ps1)** - Automated HTTPS setup (Windows)
-- **[deploy/setup-local-network.sh](deploy/setup-local-network.sh)** - Automated HTTPS setup (Linux/Mac)
-- **[deploy/test-local.sh](deploy/test-local.sh)** - Test local environment
-- **[deploy/test-turn.html](deploy/test-turn.html)** - TURN server connectivity tester
-
----
-
 ## Quick Start (5 Minutes)
-
-**👉 For detailed setup instructions, see [QUICK_START.md](QUICK_START.md)**
 
 ### 1. Clone Repository
 ```bash

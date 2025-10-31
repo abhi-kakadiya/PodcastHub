@@ -41,7 +41,8 @@ Sarah:
 2. Conducts interview naturally
 3. Both see each other in HD
 4. Dr. Kumar shares presentation slides via screen share
-5. Upload progress shows: 
+5. Recording status cards light up for audio/video/screen with live chunk counts
+6. Upload progress shows: 
    - Audio: 360/360 chunks (100%)
    - Video: 360/360 chunks (100%)
    - Screen: 180/180 chunks (100%)
@@ -62,12 +63,12 @@ Solution:
 ```
 Sarah:
 1. Clicks "Stop Recording"
-2. All chunks automatically uploaded to cloud
-3. Receives notification: "Processing started"
-4. Separate files available:
-   - sarah_audio.wav (pristine quality)
-   - kumar_audio.wav (pristine quality)  
-   - kumar_screen.mp4 (presentation)
+2. UI banner flips to "Processing" while the backend worker dequeues jobs
+3. PostgreSQL reflects status transitions: queued -> in_progress -> completed
+4. Separate files available once `recording.processed` event is emitted:
+   - sarah_audio.mp3 (full-length host track)
+   - kumar_audio.mp3 (full-length guest track)  
+   - kumar_screen.mp4 (presentation capture)
 ```
 
 ### Outcomes
@@ -157,12 +158,12 @@ Guest: Eve (Entrepreneur)
 **What Happens:**
 ```
 Timeline:
-00:00 - Recording starts
-00:05 - First 5-second chunk uploaded to MinIO ✓
-00:10 - Second chunk uploaded ✓
-00:15 - Third chunk uploaded ✓
-00:20 - Fourth chunk uploaded ✓
-00:23 - Browser crashes ✗
+- 00:00 - Recording starts
+- 00:05 - First 5-second chunk uploaded to MinIO
+- 00:10 - Second chunk uploaded
+- 00:15 - Third chunk uploaded
+- 00:20 - Fourth chunk uploaded
+- 00:23 - Browser crashes (simulated)
 
 Result:
 - 20 seconds of last chunk may be lost (worst case)
@@ -257,17 +258,17 @@ Each session has:
 ```
 MinIO structure:
 recordings/
-└── sessions/
-    ├── TRAIN-001-INTRO/
-    │   ├── recordings/
-    │   │   ├── lisa_audio/
-    │   │   ├── lisa_video/
-    │   │   └── lisa_screen/
-    ├── TRAIN-002-ADV/
-    │   └── recordings/
-    │       ├── john_audio/
-    │       └── john_video/
-    └── [48 more modules...]
+  sessions/
+    TRAIN-001-INTRO/
+      recordings/
+        lisa_audio/
+        lisa_video/
+        lisa_screen/
+    TRAIN-002-ADV/
+      recordings/
+        john_audio/
+        john_video/
+    [48 more modules...]
 ```
 
 ### Outcomes
@@ -433,10 +434,10 @@ During Lecture:
 50:00-60:00 - Live coding demo
 
 Tracks Recorded:
-- professor_audio.wav (pristine for transcription)
+- professor_audio.mp3 (pristine for transcription)
 - professor_video.mp4 (face cam)
 - professor_screen.mp4 (slides + code)
-- ta_audio.wav (questions)
+- ta_audio.mp3 (questions)
 ```
 
 **Break Management:**
@@ -494,7 +495,7 @@ Response:
 
 ### 1. Session Lifecycle
 ```
-Create → Join → Record → (Pause/Resume) → Stop → Store
+Create -> Join -> Record -> (Pause/Resume) -> Stop -> Store
 ```
 
 ### 2. Data Resilience
@@ -522,7 +523,7 @@ Create → Join → Record → (Pause/Resume) → Stop → Store
 
 ## Anti-Patterns Avoided
 
-### ❌ What PodcastHub Does NOT Do
+### What PodcastHub Does NOT Do
 
 **1. Store Recordings Locally**
 - Traditional: Save to Downloads folder
@@ -571,3 +572,4 @@ PodcastHub's scenarios demonstrate real-world applicability across diverse use c
 - **Content Networks**: Multi-show operations
 
 The architecture's flexibility, reliability, and simplicity make it suitable for any distributed recording scenario requiring high quality, real-time collaboration, and data resilience.
+
