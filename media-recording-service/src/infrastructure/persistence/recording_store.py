@@ -148,7 +148,7 @@ class RecordingMetadataStore:
             database_url,
             echo=False,
             connect_args={
-                "statement_cache_size": 0,
+                "prepared_statement_cache_size": 0,
             },
             pool_pre_ping=True,
             pool_size=5,
