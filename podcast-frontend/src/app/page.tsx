@@ -200,30 +200,6 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="flex flex-col items-center gap-6 rounded-3xl border border-white/10 bg-gradient-to-r from-purple-500/20 via-transparent to-sky-500/20 px-6 py-10 text-center">
-            <h2 className="max-w-2xl text-2xl font-semibold text-white">
-              Ready to capture your next interview, AMA, or product walk-through?
-            </h2>
-            <p className="max-w-2xl text-sm text-slate-300">
-              PodcastHub Studio keeps both faces on screen, records every take locally, and feeds your processing pipeline the moment you wrap. No tabs to juggle, no external tooling required.
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                onClick={() => router.push("/create")}
-                className="inline-flex items-center gap-2 rounded-full bg-purple-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30 transition hover:bg-purple-400"
-              >
-                <Mic className="h-4 w-4" />
-                Launch a room
-              </button>
-              <button
-                onClick={() => router.push("/join")}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:text-white"
-              >
-                <Share2 className="h-4 w-4" />
-                I already have a code
-              </button>
-            </div>
-          </section>
         </main>
 
         <footer className="mt-14 border-t border-white/10 pt-6 text-center text-xs text-slate-500">

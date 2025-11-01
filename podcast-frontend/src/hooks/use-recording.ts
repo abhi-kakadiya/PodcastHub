@@ -58,13 +58,14 @@ export function useRecording(
   };
 
   // Upload chunk to backend
-  const uploadChunk = async (
-    trackType: 'audio' | 'video' | 'screen',
-    recordingId: string,
-    sequence: number,
-    blob: Blob,
-    attempt: number = 0
-  ): Promise<boolean> => {
+  const uploadChunk = useCallback(
+    async (
+      trackType: 'audio' | 'video' | 'screen',
+      recordingId: string,
+      sequence: number,
+      blob: Blob,
+      attempt: number = 0
+    ): Promise<boolean> => {
     try {
       const checksum = await calculateChecksum(blob);
       const formData = new FormData();
@@ -94,10 +95,10 @@ export function useRecording(
         },
       }));
 
-      console.log(`✓ ${trackType} chunk ${sequence} uploaded successfully`);
+      console.log(`${trackType} chunk ${sequence} uploaded successfully`);
       return true;
     } catch (error) {
-      console.error(`✗ ${trackType} chunk ${sequence} upload failed:`, error);
+      console.error(`${trackType} chunk ${sequence} upload failed:`, error);
 
       // Retry with exponential backoff
       if (attempt < MAX_UPLOAD_RETRIES) {
@@ -108,10 +109,12 @@ export function useRecording(
         return uploadChunk(trackType, recordingId, sequence, blob, attempt + 1);
       }
 
-      console.error(`✗ ${trackType} chunk ${sequence} PERMANENTLY FAILED after ${MAX_UPLOAD_RETRIES} retries`);
+      console.error(`${trackType} chunk ${sequence} PERMANENTLY FAILED after ${MAX_UPLOAD_RETRIES} retries`);
       return false;
     }
-  };
+  },
+    [apiUrl]
+  );
 
   // Create audio-only stream from video stream
   const createAudioOnlyStream = (stream: MediaStream): MediaStream => {
@@ -134,7 +137,7 @@ export function useRecording(
     ): MediaRecorder | null => {
       try {
         let recordStream = stream;
-        let options: MediaRecorderOptions = {};
+        const options: MediaRecorderOptions = {};
 
         if (trackType === 'audio') {
           // Audio-only recording
@@ -223,7 +226,7 @@ export function useRecording(
             }));
 
             // Upload chunk immediately
-            console.log(`📤 Uploading ${trackType} chunk ${sequence} (${event.data.size} bytes)...`);
+            console.log(`Uploading ${trackType} chunk ${sequence} (${event.data.size} bytes)...`);
             await uploadChunk(trackType, recordingId, sequence, event.data);
           }
         };
@@ -242,7 +245,7 @@ export function useRecording(
         return null;
       }
     },
-    [apiUrl]
+    [uploadChunk]
   );
 
   // Start recording
@@ -286,7 +289,7 @@ export function useRecording(
           recorders.current.audio.uploadedChunks = 0;
           recorders.current.audio.totalChunks = 0;
           recorder.start(CHUNK_INTERVAL);
-          console.log('✓ Audio recorder started');
+          console.log('OK Audio recorder started');
         }
       }
 
@@ -299,7 +302,7 @@ export function useRecording(
           recorders.current.video.uploadedChunks = 0;
           recorders.current.video.totalChunks = 0;
           recorder.start(CHUNK_INTERVAL);
-          console.log('✓ Video recorder started');
+          console.log('OK Video recorder started');
         }
       }
 
@@ -312,12 +315,12 @@ export function useRecording(
           recorders.current.screen.uploadedChunks = 0;
           recorders.current.screen.totalChunks = 0;
           recorder.start(CHUNK_INTERVAL);
-          console.log('✓ Screen recorder started');
+          console.log('Screen recorder started');
         }
       }
 
       setIsRecording(true);
-      console.log('🎙️ Recording started with real-time upload');
+      console.log('Recording started with real-time upload');
     } catch (error) {
       console.error('Error starting recording:', error);
       throw error;
@@ -344,7 +347,7 @@ export function useRecording(
       });
 
       setIsPaused(true);
-      console.log('⏸️ Recording paused');
+      console.log('Recording paused');
     } catch (error) {
       console.error('Error pausing recording:', error);
       throw error;
@@ -371,7 +374,7 @@ export function useRecording(
       });
 
       setIsPaused(false);
-      console.log('▶️ Recording resumed');
+      console.log('Recording resumed');
     } catch (error) {
       console.error('Error resuming recording:', error);
       throw error;
@@ -411,7 +414,7 @@ export function useRecording(
         screen: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
       };
 
-      console.log('⏹️ Recording stopped');
+      console.log('Recording stopped');
     } catch (error) {
       console.error('Error stopping recording:', error);
       throw error;

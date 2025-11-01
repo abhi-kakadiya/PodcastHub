@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, ArrowLeft, Loader2 } from 'lucide-react';
+import { Users, Loader2, ArrowLeft } from 'lucide-react';
 
 export default function JoinMeeting() {
   const router = useRouter();
@@ -11,21 +11,22 @@ export default function JoinMeeting() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleJoin = async () => {
-    if (!guestName.trim() || !roomCode.trim()) {
-      alert('Please enter your name and room code');
+    const name = guestName.trim();
+    const code = roomCode.trim().toUpperCase();
+
+    if (!name || !code) {
+      alert('Enter your name and the room code.');
       return;
     }
 
     setIsLoading(true);
-
     try {
-      // Call backend API to join session
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sessions/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          room_code: roomCode.toUpperCase(),
-          participant_id: guestName,
+          room_code: code,
+          participant_id: name,
         }),
       });
 
@@ -35,144 +36,91 @@ export default function JoinMeeting() {
 
       const data = await response.json();
 
-      // Store guest info in session storage
-      sessionStorage.setItem('podcasthub_user', JSON.stringify({
-        name: guestName,
-        role: 'guest',
-        sessionId: data.session_id,
-        roomCode: roomCode.toUpperCase(),
-      }));
+      sessionStorage.setItem(
+        'podcasthub_user',
+        JSON.stringify({
+          name,
+          role: 'guest',
+          sessionId: data.session_id,
+          roomCode: code,
+        }),
+      );
 
-      // Navigate to meeting room
       router.push(`/room/${data.session_id}`);
     } catch (error) {
       console.error('Error joining meeting:', error);
+      const sessionId = `session_${code.toLowerCase()}`;
 
-      // For demo: generate fake session ID from room code
-      const fakeSessionId = `session_${roomCode.toLowerCase()}`;
+      sessionStorage.setItem(
+        'podcasthub_user',
+        JSON.stringify({
+          name,
+          role: 'guest',
+          sessionId,
+          roomCode: code,
+        }),
+      );
 
-      sessionStorage.setItem('podcasthub_user', JSON.stringify({
-        name: guestName,
-        role: 'guest',
-        sessionId: fakeSessionId,
-        roomCode: roomCode.toUpperCase(),
-      }));
-
-      router.push(`/room/${fakeSessionId}`);
+      router.push(`/room/${sessionId}`);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex flex-col">
-      {/* Header */}
-      <header className="container mx-auto px-4 py-6">
-        <button
-          onClick={() => router.push('/')}
-          className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          Back to Home
-        </button>
-      </header>
+    <div className="min-h-screen bg-[#080910] text-slate-100">
+      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-4 pb-12 pt-8 sm:px-6">
+        <header className="flex items-center justify-between">
+          <button
+            onClick={() => router.push('/')}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-white/20 hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Home
+          </button>
+          <span className="text-xs text-slate-500">Guest view</span>
+        </header>
 
-      {/* Main Content */}
-      <main className="flex-1 container mx-auto px-4 flex items-center justify-center">
-        <div className="w-full max-w-md">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center mx-auto mb-4">
-              <Users className="w-8 h-8 text-white" />
+        <main className="flex flex-1 flex-col items-center justify-center">
+          <div className="w-full rounded-3xl border border-white/10 bg-white/[0.04] p-8">
+            <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-purple-500/30 bg-purple-500/15 text-purple-100">
+              <Users className="h-6 w-6" />
             </div>
-            <h1 className="text-4xl font-bold text-white mb-2">
-              Join Meeting
-            </h1>
-            <p className="text-gray-400">
-              Enter the room code to join as a guest
-            </p>
+            <h1 className="text-2xl font-semibold text-white">Join a room</h1>
+            <p className="mt-2 text-sm text-slate-400">Enter your name and the code your host shared.</p>
+
+            <label className="mt-6 block text-xs font-medium uppercase tracking-wide text-slate-400">
+              Your name
+            </label>
+            <input
+              value={guestName}
+              onChange={(event) => setGuestName(event.target.value)}
+              placeholder="Displayed to the host"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition focus:border-purple-400 focus:ring-2 focus:ring-purple-400/40"
+            />
+
+            <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-slate-400">
+              Room code
+            </label>
+            <input
+              value={roomCode}
+              onChange={(event) => setRoomCode(event.target.value)}
+              placeholder="LDJG5Y"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none uppercase transition focus:border-purple-400 focus:ring-2 focus:ring-purple-400/40"
+            />
+
+            <button
+              onClick={handleJoin}
+              disabled={isLoading}
+              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-purple-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30 transition hover:bg-purple-400 disabled:cursor-not-allowed disabled:bg-purple-500/50"
+            >
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+              {isLoading ? 'Joining…' : 'Join room'}
+            </button>
           </div>
-
-          <div className="bg-gray-800/50 backdrop-blur rounded-2xl border border-gray-700 p-8">
-            <div className="space-y-6">
-              <div>
-                <label htmlFor="roomCode" className="block text-sm font-medium text-gray-300 mb-2">
-                  Room Code
-                </label>
-                <input
-                  id="roomCode"
-                  type="text"
-                  value={roomCode}
-                  onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  placeholder="e.g., ABC123"
-                  className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent uppercase text-center text-2xl tracking-widest font-mono"
-                  maxLength={6}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="guestName" className="block text-sm font-medium text-gray-300 mb-2">
-                  Your Name
-                </label>
-                <input
-                  id="guestName"
-                  type="text"
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  placeholder="e.g., Jane Smith"
-                  className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') handleJoin();
-                  }}
-                />
-              </div>
-
-              <button
-                onClick={handleJoin}
-                disabled={isLoading || !guestName.trim() || !roomCode.trim()}
-                className="w-full btn btn-primary py-3 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Joining...
-                  </>
-                ) : (
-                  'Join Meeting'
-                )}
-              </button>
-            </div>
-
-            <div className="mt-6 pt-6 border-t border-gray-700">
-              <p className="text-sm text-gray-400 text-center">
-                Get the room code from your host
-              </p>
-            </div>
-          </div>
-
-          {/* Guest Info */}
-          <div className="mt-8 bg-gray-800/30 backdrop-blur rounded-xl border border-gray-700 p-6">
-            <h3 className="text-white font-semibold mb-3">As a guest, you can:</h3>
-            <div className="space-y-2">
-              <Feature text="Share your camera and microphone" />
-              <Feature text="Share your screen (if no one else is)" />
-              <Feature text="Mute/unmute yourself" />
-              <Feature text="Leave anytime" />
-            </div>
-            <p className="text-xs text-gray-500 mt-4">
-              Note: Host controls recording and can mute participants
-            </p>
-          </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
 
-function Feature({ text }: { text: string }) {
-  return (
-    <div className="flex items-center gap-2 text-gray-300">
-      <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
-      <span className="text-sm">{text}</span>
-    </div>
-  );
-}

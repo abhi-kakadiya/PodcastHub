@@ -32,7 +32,11 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply min-h-screen bg-[#080910] bg-fixed text-foreground;
+    background-image: radial-gradient(circle at 20% 20%, rgba(118, 94, 255, 0.12), transparent 45%),
+      radial-gradient(circle at 80% 0%, rgba(255, 121, 198, 0.08), transparent 55%),
+      radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.12), transparent 55%),
+      linear-gradient(135deg, rgba(10, 11, 24, 1) 0%, rgba(2, 3, 10, 1) 100%);
   }
 }
 
@@ -121,4 +125,8 @@
 
 .control-btn-danger {
   @apply bg-red-500 text-white hover:bg-red-600;
+}
+
+.glass-panel {
+  @apply border border-white/10 bg-white/[0.04] backdrop-blur;
 }

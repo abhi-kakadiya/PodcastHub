@@ -137,6 +137,37 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     exclude=websocket,
                 )
 
+            elif message_type == "ping":
+                logger.debug(
+                    "Received ping from %s in session %s", participant_id, session_id
+                )
+                await broadcast_to_session(
+                    session_id,
+                    {
+                        "type": "pong",
+                        "participantId": participant_id,
+                        "sessionId": session_id,
+                        "timestamp": message.get("timestamp"),
+                    },
+                )
+
+            elif message_type == "recording-control":
+                logger.info(
+                    "Broadcasting recording control '%s' from %s in session %s",
+                    message.get("action"),
+                    participant_id,
+                    session_id,
+                )
+                payload = {
+                    "type": "recording-control",
+                    "action": message.get("action"),
+                    "initiatedBy": message.get("initiatedBy", participant_id),
+                    "participantId": participant_id,
+                    "sessionId": session_id,
+                    "timestamp": message.get("timestamp"),
+                }
+                await broadcast_to_session(session_id, payload, exclude=websocket)
+
             else:
                 logger.warning(f"Unknown message type: {message_type}")
 
