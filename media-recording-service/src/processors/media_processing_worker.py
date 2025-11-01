@@ -354,6 +354,22 @@ async def _run_worker() -> None:
         await worker.close()
 
 
+async def _run_worker_with_health() -> None:
+    """Run both the worker and health server concurrently."""
+    from src.processors.health_server import start_health_server
+    
+    worker = MediaProcessingWorker()
+    try:
+        await asyncio.gather(
+            start_health_server(),
+            worker.start(),
+        )
+    except asyncio.CancelledError:
+        logger.info("MediaProcessingWorker cancellation received")
+    finally:
+        await worker.close()
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -361,6 +377,6 @@ if __name__ == "__main__":
     )
 
     try:
-        asyncio.run(_run_worker())
+        asyncio.run(_run_worker_with_health())
     except KeyboardInterrupt:
         logger.info("MediaProcessingWorker interrupted by user")
