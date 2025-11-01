@@ -97,6 +97,10 @@ class Settings(BaseSettings):
         default="podcasthub",
         env="POSTGRES_DATABASE",
     )
+    postgres_ssl_mode: str = Field(
+        default="prefer", 
+        env="POSTGRES_SSL_MODE"
+    )
     persistence_backend: str = Field(
         default="postgres",
         env="PERSISTENCE_BACKEND",
@@ -125,7 +129,15 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """Get PostgreSQL connection URL"""
-        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
+        base_url = (
+            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
+        )
+        
+        if self.postgres_ssl_mode and self.postgres_ssl_mode != "disable":
+            base_url += f"?ssl={self.postgres_ssl_mode}"
+        
+        return base_url
 
 
 @lru_cache()
