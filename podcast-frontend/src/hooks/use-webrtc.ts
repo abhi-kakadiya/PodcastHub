@@ -83,39 +83,58 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isCleaningUpRef = useRef(false);
   const pendingCandidates = useRef<RTCIceCandidate[]>([]);
-  const stopScreenShareRef = useRef<() => void>(() => {});
+  const stopScreenShareRef = useRef<(() => void)>(() => {});
   const isMakingOfferRef = useRef(false);
   const isSettingRemoteAnswerPendingRef = useRef(false);
   const ignoreOfferRef = useRef(false);
   const isPolite = useMemo(() => !isHost, [isHost]);
 
-  // WebRTC configuration with multiple STUN/TURN servers
+  // WebRTC configuration with STUN and Metered.ca TURN servers
   const rtcConfig: RTCConfiguration = useMemo(() => {
     const iceServers: RTCIceServer[] = [
+      // Google STUN servers
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
     ];
 
-    const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
-    const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
-    const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+    // Get Metered.ca credentials from environment variables
+    const meteredUsername = process.env.NEXT_PUBLIC_METERED_USERNAME;
+    const meteredPassword = process.env.NEXT_PUBLIC_METERED_PASSWORD;
 
-    if (turnUrl) {
-      const turnServer: RTCIceServer = { urls: turnUrl };
-      if (turnUsername && turnCredential) {
-        turnServer.username = turnUsername;
-        turnServer.credential = turnCredential;
-      }
-      iceServers.push(turnServer);
-      console.log('dY"O Using TURN server for ICE fallback');
+    if (meteredUsername && meteredPassword) {
+      // Add Metered.ca TURN servers
+      iceServers.push(
+        {
+          urls: 'turn:a.relay.metered.ca:80',
+          username: meteredUsername,
+          credential: meteredPassword,
+        },
+        {
+          urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+          username: meteredUsername,
+          credential: meteredPassword,
+        },
+        {
+          urls: 'turn:a.relay.metered.ca:443',
+          username: meteredUsername,
+          credential: meteredPassword,
+        },
+        {
+          urls: 'turns:a.relay.metered.ca:443?transport=tcp',
+          username: meteredUsername,
+          credential: meteredPassword,
+        }
+      );
+      console.log('✅ Metered.ca TURN servers configured');
+    } else {
+      console.warn('⚠️ TURN server credentials not found - connections may fail across different networks');
     }
 
     return {
       iceServers,
       iceCandidatePoolSize: 10,
+      iceTransportPolicy: 'all', // Allow all ICE candidates (host, srflx, relay)
     };
   }, []);
 
@@ -298,7 +317,6 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     pendingCandidates.current = [];
 
     const pc = new RTCPeerConnection(rtcConfig);
-    console.log('✓ Created new peer connection');
 
     // Add local tracks
     if (localStreamRef.current) {
@@ -311,7 +329,16 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('🧊 New ICE candidate:', event.candidate.type);
+        console.log('🧊 ICE candidate:', {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+          address: event.candidate.address || 'hidden',
+        });
+        
+        // Log if we get a relay candidate (TURN working)
+        if (event.candidate.type === 'relay') {
+          console.log('✅ TURN server working - got relay candidate');
+        }
         
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(
@@ -330,7 +357,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
 
     // Handle ICE gathering state
     pc.onicegatheringstatechange = () => {
-      console.log('dYS ICE gathering state:', pc.iceGatheringState);
+      console.log('🧊 ICE gathering state:', pc.iceGatheringState);
     };
 
     pc.onnegotiationneeded = async () => {
@@ -357,7 +384,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
 
     // Handle remote stream
     pc.ontrack = (event) => {
-      console.log('Received remote track:', event.track.kind);
+      console.log('📹 Received remote track:', event.track.kind);
 
       const [incomingStream] = event.streams ?? [];
       if (!incomingStream) {
@@ -418,8 +445,12 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
       const connected = pc.connectionState === 'connected';
       setIsConnected(connected);
       
+      if (connected) {
+        console.log('✅ WebRTC peer connection established successfully!');
+      }
+      
       if (pc.connectionState === 'failed') {
-        console.error('❌ Connection failed');
+        console.error('❌ Connection failed - likely firewall or NAT issue');
         // Attempt to restart ICE
         if (pc.restartIce) {
           console.log('🔄 Restarting ICE...');
@@ -440,8 +471,12 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     pc.oniceconnectionstatechange = () => {
       console.log('🧊 ICE connection state:', pc.iceConnectionState);
       
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        console.log('✅ ICE connection established');
+      }
+      
       if (pc.iceConnectionState === 'failed') {
-        console.error('❌ ICE connection failed');
+        console.error('❌ ICE connection failed - TURN server may be needed or unreachable');
       }
       
       if (pc.iceConnectionState === 'disconnected') {
@@ -467,11 +502,12 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
       if (isCleaningUpRef.current || !mounted) return;
 
       const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8001/ws';
+      console.log('🔌 Connecting to WebSocket:', wsUrl);
       const ws = new WebSocket(`${wsUrl}/${sessionId}`);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('✅ WebSocket connected');
+        console.log('✅ WebSocket connected to:', wsUrl);
         
         if (!mounted || isCleaningUpRef.current) {
           ws.close();
@@ -519,11 +555,11 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
                   participantId,
                   offer: pc.localDescription ?? offer,
                 });
-                }
+              }
               break;
 
             case 'offer':
-              console.log('Received offer');
+              console.log('📥 Received offer');
               
               {
                 if (!message.offer) {
@@ -539,7 +575,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
                 const offerCollision = isMakingOfferRef.current || isSettingRemoteAnswerPendingRef.current || pc.signalingState !== 'stable';
                 ignoreOfferRef.current = !isPolite && offerCollision;
                 if (ignoreOfferRef.current) {
-                  console.log('Ignoring offer due to collision');
+                  console.log('⚠️ Ignoring offer due to collision');
                   break;
                 }
 
@@ -547,6 +583,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
                   await pc.setRemoteDescription(new RTCSessionDescription(message.offer));
                   const answer = await pc.createAnswer();
                   await pc.setLocalDescription(answer);
+                  console.log('📤 Sending answer');
                   sendSignal({
                     type: 'answer',
                     sessionId,
@@ -561,14 +598,14 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
                 // Add any pending ICE candidates buffered before remote description
                 for (const candidate of pendingCandidates.current) {
                   await pc.addIceCandidate(candidate);
-                  console.log('Added pending ICE candidate');
+                  console.log('✓ Added pending ICE candidate');
                 }
                 pendingCandidates.current = [];
               }
               break;
 
             case 'answer':
-              console.log('Received answer');
+              console.log('📥 Received answer');
               
               if (peerConnection.current) {
                 if (!message.answer) {
@@ -581,7 +618,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
                   await peerConnection.current.setRemoteDescription(
                     new RTCSessionDescription(message.answer)
                   );
-                  console.log('Applied remote answer');
+                  console.log('✓ Applied remote answer');
                 } catch (error) {
                   console.error('Error applying remote answer:', error);
                 } finally {
@@ -590,7 +627,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
 
                 for (const candidate of pendingCandidates.current) {
                   await peerConnection.current.addIceCandidate(candidate);
-                  console.log('Added buffered ICE candidate');
+                  console.log('✓ Added buffered ICE candidate');
                 }
                 pendingCandidates.current = [];
               }
@@ -599,7 +636,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
             case 'ice-candidate':
               console.log('🧊 Received ICE candidate');
               if (ignoreOfferRef.current) {
-                console.log('Skipping ICE candidate while ignoring offer');
+                console.log('⚠️ Skipping ICE candidate while ignoring offer');
                 break;
               }
               
@@ -622,7 +659,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
               break;
 
             case 'participant-left':
-              console.log('Remote participant disconnected');
+              console.log('👋 Remote participant disconnected');
               setStreams((prev) => ({ ...prev, remoteStream: null }));
               setIsConnected(false);
 
@@ -633,11 +670,11 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
               break;
 
             case 'screen-share-started':
-              console.log('Remote screen share started');
+              console.log('🖥️ Remote screen share started');
               break;
 
             case 'screen-share-stopped':
-              console.log('Remote screen share stopped');
+              console.log('🖥️ Remote screen share stopped');
               remoteScreenStreamIdRef.current = null;
               setStreams((prev) => {
                 if (!prev.screenStream) {
@@ -654,7 +691,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
 
             default:
               onSignalMessage?.(message);
-              console.log('Unhandled signaling message type:', message.type);
+              console.log('ℹ️ Unhandled signaling message type:', message.type);
           }
         } catch (error) {
           console.error('❌ Error handling message:', error);
