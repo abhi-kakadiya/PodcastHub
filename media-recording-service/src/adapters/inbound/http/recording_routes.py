@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, List
+from typing import Any, Dict, List, Set
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -256,7 +256,6 @@ async def stop_recording(request: StopRecordingRequest):
         )
 
     stopped_ids: List[str] = []
-    processing_payloads: List[dict] = []
     for recording in active:
         try:
             updated = await recording_service.stop_recording(recording.recording_id)
@@ -281,43 +280,33 @@ async def stop_recording(request: StopRecordingRequest):
         )
         await _broadcast_progress(request.session_id, progress)
 
-        chunk_paths = await metadata_store.get_chunk_paths(updated.recording_id)
-        if not chunk_paths:
-            logger.warning("No chunks available for recording %s; skipping processing enqueue", updated.recording_id)
-            continue
-
-        await metadata_store.mark_processing_enqueued(updated.recording_id)
-
-        processing_payloads.append(
-            {
-                "recording_id": str(updated.recording_id),
-                "session_id": updated.session_id,
-                "participant_id": updated.participant_id,
-                "track_type": updated.track_type.value,
-                "chunk_objects": chunk_paths,
-                "content_type": "audio/webm" if updated.track_type.value == "audio" else "video/webm",
-                "requested_at": datetime.utcnow().isoformat(),
-                "attempts": 0,
-            }
-        )
-
     if not stopped_ids:
         raise HTTPException(
             status_code=500,
             detail="Failed to stop recordings",
         )
 
-    if processing_payloads:
-        publisher = await _get_processing_publisher()
-        for payload in processing_payloads:
-            await publisher.publish(payload)
+    processing_enqueued: List[str] = []
+    try:
+        processing_enqueued = await _maybe_enqueue_processing_jobs(
+            session_id=request.session_id,
+            participant_id=request.participant_id,
+            metadata_store=metadata_store,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception(
+            "Failed to evaluate processing readiness for session %s participant %s: %s",
+            request.session_id,
+            request.participant_id,
+            exc,
+        )
 
     return {
         "message": f"Stopped {len(stopped_ids)} recording(s)",
         "session_id": request.session_id,
         "participant_id": request.participant_id,
         "recording_ids": stopped_ids,
-        "processing_enqueued": [payload["recording_id"] for payload in processing_payloads],
+        "processing_enqueued": processing_enqueued,
     }
 
 
@@ -361,3 +350,101 @@ async def shutdown_processing_publisher() -> None:
     if _processing_publisher:
         await _processing_publisher.close()
         _processing_publisher = None
+async def _maybe_enqueue_processing_jobs(
+    *,
+    session_id: str,
+    participant_id: str,
+    metadata_store,
+) -> List[str]:
+    """
+    Enqueue processing jobs once both audio and video tracks have uploaded chunks.
+
+    Returns:
+        List of recording IDs that were queued for processing.
+    """
+    recordings = await metadata_store.list_recordings_as_domain(
+        session_id=session_id,
+        participant_id=participant_id,
+    )
+    if not recordings:
+        return []
+
+    track_map: Dict[str, Dict[str, Any]] = {}
+    for recording in recordings:
+        try:
+            progress = await metadata_store.get_recording_progress(recording.recording_id)
+        except ValueError:
+            continue
+
+        chunk_paths = [
+            chunk["minio_path"]
+            for chunk in progress.get("chunks", [])
+            if chunk.get("status") == "uploaded"
+        ]
+        track_map[recording.track_type.value] = {
+            "recording": recording,
+            "progress": progress,
+            "chunk_paths": chunk_paths,
+        }
+
+    required_tracks: Set[str] = {"audio", "video"}
+    missing_tracks = required_tracks - set(track_map.keys())
+    if missing_tracks:
+        logger.info(
+            "Deferring processing for session %s participant %s; awaiting tracks: %s",
+            session_id,
+            participant_id,
+            ", ".join(sorted(missing_tracks)),
+        )
+        return []
+
+    empty_tracks = [
+        track
+        for track in required_tracks
+        if not track_map[track]["chunk_paths"]
+    ]
+    if empty_tracks:
+        logger.info(
+            "Deferring processing for session %s participant %s; no chunks uploaded for: %s",
+            session_id,
+            participant_id,
+            ", ".join(sorted(empty_tracks)),
+        )
+        return []
+
+    publisher = await _get_processing_publisher()
+
+    enqueued_ids: List[str] = []
+    for track, details in track_map.items():
+        progress = details["progress"]
+        processing_status = progress.get("processing_status")
+        if processing_status in {"queued", "completed"}:
+            continue
+
+        if track not in required_tracks and not details["chunk_paths"]:
+            continue
+
+        recording_id = UUID(progress["recording_id"])
+        await metadata_store.mark_processing_enqueued(recording_id)
+
+        payload = {
+            "recording_id": str(recording_id),
+            "session_id": session_id,
+            "participant_id": participant_id,
+            "track_type": track,
+            "chunk_objects": details["chunk_paths"],
+            "content_type": "audio/webm" if track == "audio" else "video/webm",
+            "requested_at": datetime.utcnow().isoformat(),
+            "attempts": 0,
+        }
+        await publisher.publish(payload)
+        enqueued_ids.append(str(recording_id))
+        logger.info(
+            "Queued processing for session %s participant %s track %s (recording %s)",
+            session_id,
+            participant_id,
+            track,
+            recording_id,
+        )
+
+    return enqueued_ids

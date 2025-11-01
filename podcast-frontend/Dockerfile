@@ -24,6 +24,7 @@ COPY --from=builder /app/next.config.js ./next.config.js
 COPY --from=builder /app/tailwind.config.ts ./tailwind.config.ts
 COPY --from=builder /app/postcss.config.js ./postcss.config.js
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --from=builder /app/public ./public
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

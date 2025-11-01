@@ -423,6 +423,70 @@ class RecordingMetadataStore:
             "tracks": tracks,
         }
 
+    async def list_sessions_for_participant(self, participant_id: str) -> List[Dict[str, Any]]:
+        """Return sessions that include the given participant."""
+        await self.initialize()
+
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(
+                    RecordingMetadataModel.session_id,
+                    func.min(RecordingMetadataModel.started_at).label("first_started"),
+                    func.min(RecordingMetadataModel.created_at).label("first_created"),
+                    func.max(RecordingMetadataModel.updated_at).label("last_updated"),
+                )
+                .where(RecordingMetadataModel.participant_id == participant_id)
+                .group_by(RecordingMetadataModel.session_id)
+                .order_by(func.max(RecordingMetadataModel.updated_at).desc())
+            )
+            sessions: List[Dict[str, Any]] = []
+            for row in result.all():
+                first_started = row.first_started or row.first_created
+                sessions.append(
+                    {
+                        "session_id": row.session_id,
+                        "first_recorded_at": first_started.isoformat() if first_started else None,
+                        "last_updated_at": row.last_updated.isoformat() if row.last_updated else None,
+                    }
+                )
+        return sessions
+
+    async def list_recordings_with_details(self, session_id: str) -> List[Dict[str, Any]]:
+        """Return detailed recording metadata for a session."""
+        await self.initialize()
+
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(RecordingMetadataModel)
+                .where(RecordingMetadataModel.session_id == session_id)
+                .order_by(
+                    RecordingMetadataModel.participant_id,
+                    RecordingMetadataModel.track_type,
+                    RecordingMetadataModel.created_at,
+                )
+            )
+            recordings: List[Dict[str, Any]] = []
+            for rec in result.scalars():
+                recordings.append(
+                    {
+                        "recording_id": str(rec.recording_id),
+                        "session_id": rec.session_id,
+                        "participant_id": rec.participant_id,
+                        "track_type": rec.track_type,
+                        "status": rec.status,
+                        "started_at": rec.started_at.isoformat() if rec.started_at else None,
+                        "ended_at": rec.ended_at.isoformat() if rec.ended_at else None,
+                        "created_at": rec.created_at.isoformat(),
+                        "updated_at": rec.updated_at.isoformat(),
+                        "total_chunks": rec.total_chunks,
+                        "uploaded_chunks": rec.uploaded_chunks,
+                        "processing_status": rec.processing_status,
+                        "processed_asset_path": rec.processed_asset_path,
+                        "metadata": rec.metadata_blob or {},
+                    }
+                )
+        return recordings
+
     async def get_chunk_paths(self, recording_id: UUID) -> List[str]:
         """Return ordered MinIO object paths for a recording."""
         await self.initialize()

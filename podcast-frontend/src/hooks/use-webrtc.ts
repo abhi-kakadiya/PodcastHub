@@ -1,10 +1,40 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
+export type SignalMessage = {
+  type?: string;
+  trackType?: string;
+  track_type?: string;
+  status?: string;
+  recordingId?: string;
+  recording_id?: string;
+  processingStatus?: string;
+  processing_status?: string;
+  participantId?: string;
+  participant_id?: string;
+  offer?: RTCSessionDescriptionInit;
+  answer?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+  startedAt?: string;
+  started_at?: string;
+  endedAt?: string;
+  ended_at?: string;
+  uploadedChunks?: number;
+  uploaded_chunks?: number;
+  totalChunks?: number;
+  total_chunks?: number;
+  processedAssetPath?: string;
+  processed_asset_path?: string;
+  processedAt?: string;
+  processed_at?: string;
+  progress_percentage?: number;
+  [key: string]: unknown;
+};
+
 interface WebRTCConfig {
   sessionId: string;
   participantId: string;
   isHost: boolean;
-  onSignalMessage?: (message: any) => void;
+  onSignalMessage?: (message: SignalMessage) => void;
 }
 
 interface MediaStreams {
@@ -23,7 +53,14 @@ interface MediaControls {
   stopScreenShare: () => void;
 }
 
-export function useWebRTC(config: WebRTCConfig) {
+interface UseWebRTCResult {
+  streams: MediaStreams;
+  controls: MediaControls;
+  isConnected: boolean;
+  sendSignal: (payload: SignalMessage) => boolean;
+}
+
+export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
   const { sessionId, participantId, isHost, onSignalMessage } = config;
 
   const [streams, setStreams] = useState<MediaStreams>({
@@ -40,9 +77,17 @@ export function useWebRTC(config: WebRTCConfig) {
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const localScreenStreamRef = useRef<MediaStream | null>(null);
+  const screenSenderRef = useRef<RTCRtpSender | null>(null);
+  const remoteScreenStreamIdRef = useRef<string | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isCleaningUpRef = useRef(false);
   const pendingCandidates = useRef<RTCIceCandidate[]>([]);
+  const stopScreenShareRef = useRef<() => void>(() => {});
+  const isMakingOfferRef = useRef(false);
+  const isSettingRemoteAnswerPendingRef = useRef(false);
+  const ignoreOfferRef = useRef(false);
+  const isPolite = useMemo(() => !isHost, [isHost]);
 
   // WebRTC configuration with multiple STUN/TURN servers
   const rtcConfig: RTCConfiguration = useMemo(() => {
@@ -128,6 +173,10 @@ export function useWebRTC(config: WebRTCConfig) {
 
   // Start screen sharing
   const startScreenShare = useCallback(async () => {
+    if (isScreenSharing) {
+      return;
+    }
+
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
@@ -138,27 +187,29 @@ export function useWebRTC(config: WebRTCConfig) {
         audio: false,
       });
 
-      // Handle when user stops sharing via browser UI
-      screenStream.getVideoTracks()[0].onended = () => {
-        stopScreenShare();
+      const [screenTrack] = screenStream.getVideoTracks();
+      if (!screenTrack) {
+        throw new Error('No video track found in screen share stream');
+      }
+
+      screenTrack.contentHint = 'detail';
+      screenTrack.onended = () => {
+        stopScreenShareRef.current();
       };
 
+      localScreenStreamRef.current = screenStream;
       setStreams((prev) => ({ ...prev, screenStream }));
       setIsScreenSharing(true);
 
-      // Replace video track in peer connection
       if (peerConnection.current) {
-        const screenTrack = screenStream.getVideoTracks()[0];
-        const senders = peerConnection.current.getSenders();
-        const videoSender = senders.find((s) => s.track?.kind === 'video');
-
-        if (videoSender) {
-          await videoSender.replaceTrack(screenTrack);
-          console.log('✓ Replaced video track with screen share');
+        try {
+          const sender = peerConnection.current.addTrack(screenTrack, screenStream);
+          screenSenderRef.current = sender;
+        } catch (error) {
+          console.error('Error attaching screen share track:', error);
         }
       }
 
-      // Notify other participant
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -172,31 +223,35 @@ export function useWebRTC(config: WebRTCConfig) {
       console.error('Error starting screen share:', error);
       throw error;
     }
-  }, [sessionId, participantId]);
+  }, [isScreenSharing, participantId, sessionId]);
 
   // Stop screen sharing
   const stopScreenShare = useCallback(() => {
+    const currentScreenStream = localScreenStreamRef.current;
+
+    if (screenSenderRef.current && peerConnection.current) {
+      try {
+        peerConnection.current.removeTrack(screenSenderRef.current);
+      } catch (error) {
+        console.error('Error removing screen share sender:', error);
+      }
+      screenSenderRef.current = null;
+    }
+
+    if (currentScreenStream) {
+      currentScreenStream.getTracks().forEach((track) => track.stop());
+      localScreenStreamRef.current = null;
+    }
+
     setStreams((prev) => {
-      if (prev.screenStream) {
-        prev.screenStream.getTracks().forEach((track) => track.stop());
+      if (!prev.screenStream) {
+        return prev;
       }
       return { ...prev, screenStream: null };
     });
     setIsScreenSharing(false);
+    remoteScreenStreamIdRef.current = null;
 
-    // Restore camera track
-    if (peerConnection.current && localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      const senders = peerConnection.current.getSenders();
-      const videoSender = senders.find((s) => s.track?.kind === 'video');
-
-      if (videoSender && videoTrack) {
-        videoSender.replaceTrack(videoTrack);
-        console.log('✓ Restored camera video track');
-      }
-    }
-
-    // Notify other participant
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
@@ -206,7 +261,29 @@ export function useWebRTC(config: WebRTCConfig) {
         })
       );
     }
-  }, [sessionId, participantId]);
+  }, [participantId, sessionId]);
+
+  useEffect(() => {
+    stopScreenShareRef.current = stopScreenShare;
+  }, [stopScreenShare]);
+
+  const sendSignal = useCallback(
+    (payload: SignalMessage): boolean => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        console.warn('Attempted to send signal on closed socket', payload);
+        return false;
+      }
+
+      try {
+        wsRef.current.send(JSON.stringify(payload));
+        return true;
+      } catch (error) {
+        console.error('Failed to send signal payload', error, payload);
+        return false;
+      }
+    },
+    [],
+  );
 
   // Create peer connection
   const createPeerConnection = useCallback(() => {
@@ -253,22 +330,85 @@ export function useWebRTC(config: WebRTCConfig) {
 
     // Handle ICE gathering state
     pc.onicegatheringstatechange = () => {
-      console.log('🧊 ICE gathering state:', pc.iceGatheringState);
+      console.log('dYS ICE gathering state:', pc.iceGatheringState);
+    };
+
+    pc.onnegotiationneeded = async () => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      try {
+        isMakingOfferRef.current = true;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal({
+          type: 'offer',
+          sessionId,
+          participantId,
+          offer: pc.localDescription ?? offer,
+        });
+      } catch (error) {
+        console.error('Error during negotiationneeded:', error);
+      } finally {
+        isMakingOfferRef.current = false;
+      }
     };
 
     // Handle remote stream
     pc.ontrack = (event) => {
-      console.log('🎥 Received remote track:', event.track.kind);
-      
-      if (event.streams && event.streams[0]) {
-        const remoteStream = event.streams[0];
-        console.log('📺 Remote stream tracks:', {
-          audio: remoteStream.getAudioTracks().length,
-          video: remoteStream.getVideoTracks().length,
-        });
-        
-        setStreams((prev) => ({ ...prev, remoteStream }));
+      console.log('Received remote track:', event.track.kind);
+
+      const [incomingStream] = event.streams ?? [];
+      if (!incomingStream) {
+        return;
       }
+
+      const trackLabel = (event.track.label || '').toLowerCase();
+      const looksLikeScreen = event.track.kind === 'video' && (trackLabel.includes('screen') || trackLabel.includes('window') || trackLabel.includes('display') || trackLabel.includes('share'));
+
+      if (event.track.kind === 'video') {
+        setStreams((prev) => {
+          const hasRemoteStream = Boolean(prev.remoteStream);
+          const remoteStreamChanged = hasRemoteStream && prev.remoteStream?.id !== incomingStream.id;
+          const isKnownScreen = prev.screenStream?.id === incomingStream.id;
+          const shouldTreatAsScreen = looksLikeScreen || (remoteStreamChanged && !isKnownScreen);
+
+          if (shouldTreatAsScreen) {
+            remoteScreenStreamIdRef.current = incomingStream.id;
+            event.track.onended = () => {
+              setStreams((current) => {
+                if (current.screenStream && current.screenStream.id === incomingStream.id) {
+                  return { ...current, screenStream: null };
+                }
+                return current;
+              });
+              remoteScreenStreamIdRef.current = null;
+            };
+
+            if (isKnownScreen) {
+              return prev;
+            }
+
+            return { ...prev, screenStream: incomingStream };
+          }
+
+          if (prev.remoteStream && prev.remoteStream.id === incomingStream.id) {
+            return prev;
+          }
+
+          return { ...prev, remoteStream: incomingStream };
+        });
+        return;
+      }
+
+      setStreams((prev) => {
+        if (prev.remoteStream && prev.remoteStream.id === incomingStream.id) {
+          return prev;
+        }
+
+        return { ...prev, remoteStream: incomingStream };
+      });
     };
 
     // Handle connection state
@@ -316,7 +456,7 @@ export function useWebRTC(config: WebRTCConfig) {
 
     peerConnection.current = pc;
     return pc;
-  }, [sessionId, participantId, rtcConfig]);
+  }, [sessionId, participantId, rtcConfig, sendSignal]);
 
   // Initialize WebSocket signaling
   useEffect(() => {
@@ -352,7 +492,7 @@ export function useWebRTC(config: WebRTCConfig) {
       ws.onmessage = async (event) => {
         if (!mounted || isCleaningUpRef.current) return;
 
-        const message = JSON.parse(event.data);
+        const message = JSON.parse(event.data) as SignalMessage;
         console.log('📨 Received:', message.type);
 
         try {
@@ -373,66 +513,84 @@ export function useWebRTC(config: WebRTCConfig) {
                 await pc.setLocalDescription(offer);
                 console.log('📤 Sending offer');
 
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(
-                    JSON.stringify({
-                      type: 'offer',
-                      sessionId,
-                      participantId,
-                      offer: pc.localDescription,
-                    })
-                  );
+                sendSignal({
+                  type: 'offer',
+                  sessionId,
+                  participantId,
+                  offer: pc.localDescription ?? offer,
+                });
                 }
-              }
               break;
 
             case 'offer':
-              console.log('📥 Received offer');
+              console.log('Received offer');
               
-              if (!isHost && localStreamRef.current) {
-                console.log('🎯 Guest creating answer...');
-                const pc = createPeerConnection();
-                
-                await pc.setRemoteDescription(new RTCSessionDescription(message.offer));
-                console.log('✓ Set remote description');
-                
-                // Add any pending ICE candidates
+              {
+                if (!message.offer) {
+                  console.warn('Received offer without SDP payload');
+                  break;
+                }
+
+                let pc = peerConnection.current;
+                if (!pc) {
+                  pc = createPeerConnection();
+                }
+
+                const offerCollision = isMakingOfferRef.current || isSettingRemoteAnswerPendingRef.current || pc.signalingState !== 'stable';
+                ignoreOfferRef.current = !isPolite && offerCollision;
+                if (ignoreOfferRef.current) {
+                  console.log('Ignoring offer due to collision');
+                  break;
+                }
+
+                try {
+                  await pc.setRemoteDescription(new RTCSessionDescription(message.offer));
+                  const answer = await pc.createAnswer();
+                  await pc.setLocalDescription(answer);
+                  sendSignal({
+                    type: 'answer',
+                    sessionId,
+                    participantId,
+                    answer: pc.localDescription ?? answer,
+                  });
+                } catch (error) {
+                  console.error('Error handling remote offer:', error);
+                  break;
+                }
+
+                // Add any pending ICE candidates buffered before remote description
                 for (const candidate of pendingCandidates.current) {
                   await pc.addIceCandidate(candidate);
-                  console.log('✓ Added pending ICE candidate');
+                  console.log('Added pending ICE candidate');
                 }
                 pendingCandidates.current = [];
-                
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                console.log('📤 Sending answer');
-
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(
-                    JSON.stringify({
-                      type: 'answer',
-                      sessionId,
-                      participantId,
-                      answer: pc.localDescription,
-                    })
-                  );
-                }
               }
               break;
 
             case 'answer':
-              console.log('📥 Received answer');
+              console.log('Received answer');
               
               if (peerConnection.current) {
-                await peerConnection.current.setRemoteDescription(
-                  new RTCSessionDescription(message.answer)
-                );
-                console.log('✓ Set remote description');
-                
-                // Add any pending ICE candidates
+                if (!message.answer) {
+                  console.warn('Received answer without SDP payload');
+                  break;
+                }
+
+                try {
+                  isSettingRemoteAnswerPendingRef.current = true;
+                  await peerConnection.current.setRemoteDescription(
+                    new RTCSessionDescription(message.answer)
+                  );
+                  console.log('Applied remote answer');
+                } catch (error) {
+                  console.error('Error applying remote answer:', error);
+                } finally {
+                  isSettingRemoteAnswerPendingRef.current = false;
+                }
+
                 for (const candidate of pendingCandidates.current) {
                   await peerConnection.current.addIceCandidate(candidate);
-                  console.log('✓ Added pending ICE candidate');
+                  console.log('Added buffered ICE candidate');
                 }
                 pendingCandidates.current = [];
               }
@@ -440,6 +598,10 @@ export function useWebRTC(config: WebRTCConfig) {
 
             case 'ice-candidate':
               console.log('🧊 Received ICE candidate');
+              if (ignoreOfferRef.current) {
+                console.log('Skipping ICE candidate while ignoring offer');
+                break;
+              }
               
               if (message.candidate) {
                 const candidate = new RTCIceCandidate(message.candidate);
@@ -476,6 +638,13 @@ export function useWebRTC(config: WebRTCConfig) {
 
             case 'screen-share-stopped':
               console.log('Remote screen share stopped');
+              remoteScreenStreamIdRef.current = null;
+              setStreams((prev) => {
+                if (!prev.screenStream) {
+                  return prev;
+                }
+                return { ...prev, screenStream: null };
+              });
               break;
 
             case 'recording-status':
@@ -562,7 +731,7 @@ export function useWebRTC(config: WebRTCConfig) {
         peerConnection.current.close();
       }
     };
-  }, [sessionId, participantId, isHost, onSignalMessage, createPeerConnection, initializeLocalStream]);
+  }, [sessionId, participantId, isHost, onSignalMessage, createPeerConnection, initializeLocalStream, sendSignal, isPolite]);
 
   const controls: MediaControls = {
     isMicOn,
@@ -578,6 +747,6 @@ export function useWebRTC(config: WebRTCConfig) {
     streams,
     controls,
     isConnected,
+    sendSignal,
   };
 }
-
