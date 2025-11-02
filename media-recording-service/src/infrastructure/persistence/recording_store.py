@@ -144,17 +144,7 @@ class RecordingMetadataStore:
     """
 
     def __init__(self, database_url: str):
-        self._engine = create_async_engine(
-            database_url,
-            echo=False,
-            connect_args={
-                "prepared_statement_cache_size": 0,
-            },
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-            pool_recycle=3600,
-        )
+        self._engine = create_async_engine(database_url, echo=False)
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
             expire_on_commit=False,
