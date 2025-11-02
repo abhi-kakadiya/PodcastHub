@@ -50,10 +50,12 @@ export default function MeetingRoom() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [recordingStatuses, setRecordingStatuses] = useState<Record<string, RecordingStatusState>>({});
   const [expandedView, setExpandedView] = useState<'local' | 'remote' | 'screen' | null>(null);
+  const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
   const signalHandlerRef = useRef<((message: SignalMessage) => void) | null>(null);
 
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const expandedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const inviteFeedbackTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const storedUser = sessionStorage.getItem('podcasthub_user');
@@ -63,6 +65,25 @@ export default function MeetingRoom() {
     }
     setUserData(JSON.parse(storedUser));
   }, [router]);
+
+  useEffect(
+    () => () => {
+      if (inviteFeedbackTimeout.current) {
+        clearTimeout(inviteFeedbackTimeout.current);
+      }
+    },
+    [],
+  );
+
+  const showInviteFeedback = useCallback((message: string) => {
+    setInviteFeedback(message);
+    if (inviteFeedbackTimeout.current) {
+      clearTimeout(inviteFeedbackTimeout.current);
+    }
+    inviteFeedbackTimeout.current = setTimeout(() => {
+      setInviteFeedback(null);
+    }, 2400);
+  }, []);
 
   const relaySignalToHandler = useCallback((message: SignalMessage) => {
     signalHandlerRef.current?.(message);
@@ -94,6 +115,8 @@ export default function MeetingRoom() {
     streams.localStream,
     streams.screenStream,
   );
+
+  const currentRoomCode = userData?.roomCode ?? roomId;
 
   const broadcastRecordingCommand = useCallback(
     (action: 'start' | 'pause' | 'resume' | 'stop') => {
@@ -359,13 +382,46 @@ export default function MeetingRoom() {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleCopyInviteLink = useCallback(() => {
+  const handleCopyInviteLink = useCallback(async () => {
     if (typeof window === 'undefined') return;
+
     const inviteUrl = `${window.location.origin}/room/${roomId}`;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(inviteUrl).catch((err) => console.error('Failed to copy invite link:', err));
+    const shareData = {
+      title: 'Join my PodcastHub room',
+      text: `Use room code ${currentRoomCode} to join the recording.`,
+      url: inviteUrl,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        showInviteFeedback('Invite shared');
+        return;
+      } catch (error) {
+        if ((error as { name?: string })?.name === 'AbortError') {
+          return;
+        }
+        console.warn('Share failed, falling back to copy:', error);
+      }
     }
-  }, [roomId]);
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(inviteUrl);
+        showInviteFeedback('Invite link copied');
+        return;
+      } catch (error) {
+        console.error('Failed to copy invite link:', error);
+      }
+    }
+
+    if (window.prompt) {
+      window.prompt('Copy this invite link:', inviteUrl);
+      showInviteFeedback('Invite link ready');
+    } else {
+      showInviteFeedback('Unable to share invite automatically');
+    }
+  }, [roomId, currentRoomCode, showInviteFeedback]);
 
   const closeExpandedView = useCallback(() => setExpandedView(null), []);
 
@@ -568,32 +624,37 @@ export default function MeetingRoom() {
   return (
     <div className="min-h-screen bg-[#080910] text-slate-100">
       <div className="flex h-screen flex-col">
-        <header className="flex items-center justify-between border-b border-white/10 bg-white/[0.04] px-4 py-4 backdrop-blur-lg md:px-8">
-          <div className="flex items-center gap-4">
-            <Logo subtitle="Studio controls" />
-            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300 md:flex">
-              <span className="text-slate-500">Room code</span>
-              <span className="font-semibold text-white">{userData?.roomCode ?? roomId}</span>
+        <header className="border-b border-white/10 bg-white/[0.04] px-4 py-4 backdrop-blur-lg md:px-8">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <Logo subtitle="Studio controls" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300">
+                <span className="text-slate-500">Room code</span>
+                <span className="font-semibold text-white">{currentRoomCode}</span>
+              </div>
+              <div className="hidden items-center gap-2 md:flex">
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                  <span className={`h-2 w-2 rounded-full ${isRecording ? 'animate-pulse bg-emerald-400' : 'bg-slate-400'}`} />
+                  {isRecording ? 'Recording in progress' : 'Ready to record'}
+                </span>
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+                  <Users className="h-3.5 w-3.5" />
+                  {isConnected ? 'All peers connected' : 'Connecting...'}
+                </span>
+              </div>
             </div>
-            <div className="hidden items-center gap-2 md:flex">
-              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
-                <span className={`h-2 w-2 rounded-full ${isRecording ? 'animate-pulse bg-emerald-400' : 'bg-slate-400'}`} />
-                {isRecording ? 'Recording in progress' : 'Ready to record'}
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-                <Users className="h-3.5 w-3.5" />
-                {isConnected ? 'All peers connected' : 'Connecting...'}
-              </span>
+            <div className="flex flex-col items-start gap-1 md:items-end">
+              <button
+                onClick={handleCopyInviteLink}
+                className="inline-flex items-center gap-2 rounded-full bg-purple-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-purple-500/30 transition hover:bg-purple-400"
+              >
+                <Share2 className="h-4 w-4" />
+                Invite
+              </button>
+              {inviteFeedback && (
+                <span className="text-xs text-slate-400 md:text-slate-300">{inviteFeedback}</span>
+              )}
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCopyInviteLink}
-              className="inline-flex items-center gap-2 rounded-full bg-purple-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-purple-500/30 transition hover:bg-purple-400"
-            >
-              <Share2 className="h-4 w-4" />
-              Invite
-            </button>
           </div>
         </header>
 
