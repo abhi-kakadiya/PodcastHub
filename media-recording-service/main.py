@@ -112,18 +112,18 @@ app.add_middleware(
 
 
 # Include routers
-app.include_router(session_router)  # New simplified session routes
-app.include_router(host_routes_router)  # Host-facing dashboard endpoints
-app.include_router(recording_routes_router)  # New simplified recording routes
-app.include_router(upload_routes_router)  # New simplified upload routes with MinIO
-app.include_router(websocket_handler_router)  # New WebSocket signaling for WebRTC
-app.include_router(recording_router)  # Original complex recording routes
-app.include_router(upload_router)  # Original complex upload routes
-app.include_router(websocket_router)  # Original WebSocket routes
+app.include_router(session_router)  
+app.include_router(host_routes_router)  
+app.include_router(recording_routes_router)  
+app.include_router(upload_routes_router)
+app.include_router(websocket_handler_router)
+app.include_router(recording_router)
+app.include_router(upload_router)
+app.include_router(websocket_router)  
 
 
 # Health check endpoint
-@app.get("/health", tags=["monitoring"])
+@app.get("/health", methods=["GET", "HEAD"], tags=["monitoring"])
 async def health_check():
     """
     Health check endpoint.
