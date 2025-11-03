@@ -153,9 +153,6 @@ class RecordingMetadataStore:
                 poolclass=NullPool,
                 connect_args={
                     "statement_cache_size": 0,
-                    "server_settings": {
-                        "jit": "off"
-                    }
                 }
             )
             logger.info("RecordingMetadataStore initialized for worker (NullPool, no statement cache)")
@@ -169,9 +166,6 @@ class RecordingMetadataStore:
                 pool_recycle=3600,
                 connect_args={
                     "statement_cache_size": 0,
-                    "server_settings": {
-                        "jit": "off"
-                    }
                 }
             )
             logger.info("RecordingMetadataStore initialized for web service (connection pool)")
