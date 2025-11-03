@@ -146,22 +146,32 @@ class RecordingMetadataStore:
             is_worker: True if running in worker context, False for web service
         """
         from sqlalchemy.pool import NullPool
+        import asyncpg
+        from functools import partial
         
-        connect_args = {
-            "statement_cache_size": 0,
-            "server_settings": {
-                "jit": "off"
-            }
-        }
+        from sqlalchemy.engine.url import make_url
+        url_obj = make_url(database_url)
+        
+        async def create_async_connection():
+            return await asyncpg.connect(
+                host=url_obj.host,
+                port=url_obj.port or 5432,
+                user=url_obj.username,
+                password=url_obj.password,
+                database=url_obj.database,
+                statement_cache_size=0,
+                server_settings={"jit": "off"},
+                ssl=url_obj.query.get('ssl', 'prefer') if url_obj.query else 'prefer',
+            )
         
         if is_worker:
             self._engine = create_async_engine(
                 database_url,
                 echo=False,
                 poolclass=NullPool,
-                connect_args=connect_args,
+                async_creator=create_async_connection,
             )
-            logger.info("RecordingMetadataStore initialized for worker (NullPool)")
+            logger.info("RecordingMetadataStore initialized for worker (NullPool, custom creator)")
         else:
             self._engine = create_async_engine(
                 database_url,
@@ -170,9 +180,9 @@ class RecordingMetadataStore:
                 max_overflow=20,
                 pool_pre_ping=True,
                 pool_recycle=3600,
-                connect_args=connect_args,
+                async_creator=create_async_connection,
             )
-            logger.info("RecordingMetadataStore initialized for web service (pooled)")
+            logger.info("RecordingMetadataStore initialized for web service (pooled, custom creator)")
         
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
