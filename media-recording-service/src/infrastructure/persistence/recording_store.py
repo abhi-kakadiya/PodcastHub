@@ -135,6 +135,12 @@ class ChunkMetadataModel(Base):
 class RecordingMetadataStore:
     """
     Asynchronous persistence layer for recording metadata.
+
+    This store is responsible for:
+      * Synchronising domain Recording aggregates to PostgreSQL
+      * Tracking chunk uploads, counts, and manifests
+      * Recording processing lifecycle metadata (attempts, errors, completion)
+      * Providing summaries for REST/WebSocket payloads
     """
 
     def __init__(self, database_url: str, is_worker: bool = False):
@@ -147,28 +153,13 @@ class RecordingMetadataStore:
         """
         from sqlalchemy.pool import NullPool
         
-        connect_args = {
-            "prepared_statement_cache_size": 0,
-            "statement_cache_size": 0, 
-            "server_settings": {
-                "jit": "off",
-            }
-        }
-        
-        execution_options = {
-            "compiled_cache": None,
-        }
-        
         if is_worker:
             self._engine = create_async_engine(
                 database_url,
                 echo=False,
                 poolclass=NullPool,
-                connect_args=connect_args,
-                execution_options=execution_options,
-                pool_pre_ping=False,
             )
-            logger.info("RecordingMetadataStore initialized for worker (NullPool, no prepared statements)")
+            logger.info("RecordingMetadataStore initialized for worker (NullPool, psycopg)")
         else:
             self._engine = create_async_engine(
                 database_url,
@@ -177,22 +168,14 @@ class RecordingMetadataStore:
                 max_overflow=20,
                 pool_pre_ping=True,
                 pool_recycle=3600,
-                connect_args=connect_args,
-                execution_options=execution_options,
             )
-            logger.info("RecordingMetadataStore initialized for web service (pooled, no prepared statements)")
+            logger.info("RecordingMetadataStore initialized for web service (pooled, psycopg)")
         
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
             expire_on_commit=False,
         )
         self._initialized = False
-        
-        from sqlalchemy import event
-        
-        @event.listens_for(self._engine.sync_engine, "connect")
-        def receive_connect(dbapi_conn, connection_record):
-            pass
 
     async def initialize(self) -> None:
         """Initialise database schema if it does not yet exist."""

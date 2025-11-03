@@ -15,7 +15,7 @@ def get_recording_metadata_store() -> RecordingMetadataStore:
     global _metadata_store
     if _metadata_store is None:
         settings = get_settings()
-        _metadata_store = RecordingMetadataStore(settings.database_url, is_worker=False)
+        _metadata_store = RecordingMetadataStore(settings.database_url, settings.is_worker)
     return _metadata_store
 
 

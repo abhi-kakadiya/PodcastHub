@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     environment: str = Field(default="development", env="ENVIRONMENT")
     debug: bool = Field(default=True, env="DEBUG")
+    is_worker: bool = Field(default=False, env="IS_WORKER")
 
     # Server settings
     host: str = Field(default="0.0.0.0", env="HOST")
@@ -127,15 +128,14 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """Get PostgreSQL connection URL"""
+        """Get PostgreSQL connection URL using psycopg (Supabase/pgBouncer compatible)"""
         base_url = (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
         )
         
-        # Only add SSL mode to URL
         if self.postgres_ssl_mode and self.postgres_ssl_mode != "disable":
-            base_url += f"?ssl={self.postgres_ssl_mode}"
+            base_url += f"?sslmode={self.postgres_ssl_mode}"
         
         return base_url
 

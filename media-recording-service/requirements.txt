@@ -16,8 +16,8 @@ aiormq==6.7.7
 # Object Storage
 minio==7.2.0
 
-# Database
-asyncpg==0.29.0
+# Database - psycopg for Supabase pooler compatibility
+psycopg[binary]==3.1.18
 sqlalchemy[asyncio]==2.0.23
 
 # Utilities
