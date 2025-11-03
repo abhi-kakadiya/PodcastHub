@@ -49,7 +49,7 @@ class MediaProcessingWorker:
             secure=settings.minio_secure,
             bucket_name=settings.minio_bucket,
         )
-        self._metadata_store = RecordingMetadataStore(settings.database_url, is_worker=True)
+        self._metadata_store = RecordingMetadataStore(settings.database_url)
         self._max_attempts = 3
         self._connection: Optional[aio_pika.RobustConnection] = None
         self._channel: Optional[aio_pika.Channel] = None
