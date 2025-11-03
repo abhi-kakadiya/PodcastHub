@@ -136,12 +136,6 @@ class ChunkMetadataModel(Base):
 class RecordingMetadataStore:
     """
     Asynchronous persistence layer for recording metadata.
-
-    This store is responsible for:
-      * Synchronising domain Recording aggregates to PostgreSQL
-      * Tracking chunk uploads, counts, and manifests
-      * Recording processing lifecycle metadata (attempts, errors, completion)
-      * Providing summaries for REST/WebSocket payloads
     """
 
     def __init__(self, database_url: str, is_worker: bool = False):
@@ -152,35 +146,29 @@ class RecordingMetadataStore:
             database_url: PostgreSQL connection string
             is_worker: True if running in worker context, False for web service
         """
-        if is_worker:
-            engine_kwargs = {
-                "poolclass": NullPool,
-                "connect_args": {
-                    "prepared_statement_cache_size": 0,
-                    "statement_cache_size": 0,
-                },
-                "execution_options": {
-                    "compiled_cache": None,
-                }
-            }
-        else:
-            engine_kwargs = {
-                "poolclass": QueuePool,
-                "pool_size": 10,
-                "max_overflow": 20,
-                "pool_pre_ping": True,
-                "pool_recycle": 3600,
-                "connect_args": {
-                    "prepared_statement_cache_size": 0,
-                    "statement_cache_size": 0,
-                },
-            }
+        connect_args = {
+            "prepared_statement_cache_size": 0,
+            "statement_cache_size": 0,
+        }
         
-        self._engine = create_async_engine(
-            database_url,
-            echo=False,
-            **engine_kwargs
-        )
+        if is_worker:
+            self._engine = create_async_engine(
+                database_url,
+                echo=False,
+                poolclass=NullPool,
+                connect_args=connect_args,
+            )
+        else:
+            self._engine = create_async_engine(
+                database_url,
+                echo=False,
+                pool_size=10,
+                max_overflow=20,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+                connect_args=connect_args,
+            )
+        
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
             expire_on_commit=False,
