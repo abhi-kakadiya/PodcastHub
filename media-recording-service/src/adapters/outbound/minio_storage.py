@@ -4,7 +4,6 @@ Implements the storage port for uploading chunks to MinIO (S3-compatible storage
 """
 
 from io import BytesIO
-from typing import Optional
 import logging
 from datetime import timedelta
 

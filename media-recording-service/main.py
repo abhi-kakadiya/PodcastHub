@@ -19,7 +19,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.adapters.inbound.rest import recording_router, upload_router
-from src.adapters.inbound.rest.health_api import router as health_router
 from src.adapters.inbound.websocket import websocket_router
 from src.adapters.inbound.http.session_routes import router as session_router
 from src.adapters.inbound.http.recording_routes import router as recording_routes_router
@@ -121,7 +120,6 @@ app.include_router(websocket_handler_router)  # New WebSocket signaling for WebR
 app.include_router(recording_router)  # Original complex recording routes
 app.include_router(upload_router)  # Original complex upload routes
 app.include_router(websocket_router)  # Original WebSocket routes
-app.include_router(health_router)
 
 
 # Health check endpoint

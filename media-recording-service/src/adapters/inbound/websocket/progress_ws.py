@@ -4,7 +4,6 @@ WebSocket handler for real-time progress updates.
 Provides real-time updates to clients about recording and upload progress.
 """
 
-import json
 import logging
 from typing import Dict, Set
 from uuid import UUID
@@ -23,7 +22,6 @@ class ConnectionManager:
     """
 
     def __init__(self):
-        # Map of resource_id -> set of websockets
         self.active_connections: Dict[str, Set[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, resource_id: str):

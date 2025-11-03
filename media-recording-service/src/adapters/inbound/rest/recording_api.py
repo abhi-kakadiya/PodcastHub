@@ -22,7 +22,6 @@ from .dtos import (
     RecordingResponse,
     RecordingStatusResponse,
     ErrorResponse,
-    SuccessResponse,
 )
 
 
@@ -395,7 +394,7 @@ async def get_assembled_recording(
         storage = get_storage()
 
         # Assemble chunks into a single file
-        output_dir = f"./storage/assembled"
+        output_dir = "./storage/assembled"
         os.makedirs(output_dir, exist_ok=True)
         output_path = f"{output_dir}/{recording_id}.webm"
 

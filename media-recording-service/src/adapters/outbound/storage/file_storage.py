@@ -5,10 +5,9 @@ Implements StoragePort using local filesystem storage.
 This is suitable for development and can be replaced with S3/Azure Blob in production.
 """
 
-import os
 import aiofiles
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 from uuid import UUID
 import asyncio
 import json
