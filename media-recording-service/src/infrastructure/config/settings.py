@@ -127,14 +127,20 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """Get PostgreSQL connection URL"""
+        """Get PostgreSQL connection URL with pgBouncer-compatible settings"""
         base_url = (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
         )
         
+        params = []
+        params.append("statement_cache_size=0")
+        
         if self.postgres_ssl_mode and self.postgres_ssl_mode != "disable":
-            base_url += f"?ssl={self.postgres_ssl_mode}"
+            params.append(f"ssl={self.postgres_ssl_mode}")
+        
+        if params:
+            base_url += "?" + "&".join(params)
         
         return base_url
 

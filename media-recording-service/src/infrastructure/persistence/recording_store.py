@@ -135,26 +135,37 @@ class ChunkMetadataModel(Base):
 class RecordingMetadataStore:
     """
     Asynchronous persistence layer for recording metadata.
-
-    This store is responsible for:
-      * Synchronising domain Recording aggregates to PostgreSQL
-      * Tracking chunk uploads, counts, and manifests
-      * Recording processing lifecycle metadata (attempts, errors, completion)
-      * Providing summaries for REST/WebSocket payloads
     """
 
-    def __init__(self, database_url: str):
-        self._engine = create_async_engine(
-            database_url,
-            echo=False,
-            connect_args={
-                "prepared_statement_cache_size": 0,
-            },
-            pool_size=5,
-            max_overflow=10,
-            pool_pre_ping=True,
-            pool_recycle=3600,
-        )
+    def __init__(self, database_url: str, is_worker: bool = False):
+        """
+        Initialize the metadata store.
+        
+        Args:
+            database_url: PostgreSQL connection string
+            is_worker: True if running in worker context, False for web service
+        """
+        from sqlalchemy.pool import NullPool
+        
+        if is_worker:
+            self._engine = create_async_engine(
+                database_url,
+                echo=False,
+                poolclass=NullPool,
+                pool_pre_ping=True,
+            )
+            logger.info("RecordingMetadataStore initialized for worker (NullPool)")
+        else:
+            self._engine = create_async_engine(
+                database_url,
+                echo=False,
+                pool_size=10,
+                max_overflow=20,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+            )
+            logger.info("RecordingMetadataStore initialized for web service (pooled)")
+        
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
             expire_on_commit=False,
