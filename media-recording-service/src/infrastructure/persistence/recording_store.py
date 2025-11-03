@@ -28,6 +28,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.pool import NullPool, QueuePool
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -143,17 +144,42 @@ class RecordingMetadataStore:
       * Providing summaries for REST/WebSocket payloads
     """
 
-    def __init__(self, database_url: str):
+    def __init__(self, database_url: str, is_worker: bool = False):
+        """
+        Initialize the metadata store.
+        
+        Args:
+            database_url: PostgreSQL connection string
+            is_worker: True if running in worker context, False for web service
+        """
+        if is_worker:
+            engine_kwargs = {
+                "poolclass": NullPool,
+                "connect_args": {
+                    "prepared_statement_cache_size": 0,
+                    "statement_cache_size": 0,
+                },
+                "execution_options": {
+                    "compiled_cache": None,
+                }
+            }
+        else:
+            engine_kwargs = {
+                "poolclass": QueuePool,
+                "pool_size": 10,
+                "max_overflow": 20,
+                "pool_pre_ping": True,
+                "pool_recycle": 3600,
+                "connect_args": {
+                    "prepared_statement_cache_size": 0,
+                    "statement_cache_size": 0,
+                },
+            }
+        
         self._engine = create_async_engine(
             database_url,
             echo=False,
-            connect_args={
-                "prepared_statement_cache_size": 0,
-            },
-            pool_size=5,
-            max_overflow=10,
-            pool_pre_ping=True,
-            pool_recycle=3600,
+            **engine_kwargs
         )
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
