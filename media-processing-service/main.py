@@ -62,7 +62,7 @@ app.add_middleware(
 app.include_router(processing_router)
 
 
-@app.get("/health", methods=["GET", "HEAD"], tags=["monitoring"])
+@app.get("/health", tags=["monitoring"])
 async def health_check():
     return JSONResponse(
         content={

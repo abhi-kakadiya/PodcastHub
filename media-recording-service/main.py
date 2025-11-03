@@ -123,7 +123,7 @@ app.include_router(websocket_router)
 
 
 # Health check endpoint
-@app.get("/health", methods=["GET", "HEAD"], tags=["monitoring"])
+@app.get("/health", tags=["monitoring"])
 async def health_check():
     """
     Health check endpoint.
