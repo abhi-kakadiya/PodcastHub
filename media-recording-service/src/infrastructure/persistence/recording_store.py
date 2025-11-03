@@ -147,12 +147,19 @@ class RecordingMetadataStore:
         """
         from sqlalchemy.pool import NullPool
         
+        connect_args = {
+            "statement_cache_size": 0,
+            "server_settings": {
+                "jit": "off"
+            }
+        }
+        
         if is_worker:
             self._engine = create_async_engine(
                 database_url,
                 echo=False,
                 poolclass=NullPool,
-                pool_pre_ping=True,
+                connect_args=connect_args,
             )
             logger.info("RecordingMetadataStore initialized for worker (NullPool)")
         else:
@@ -163,6 +170,7 @@ class RecordingMetadataStore:
                 max_overflow=20,
                 pool_pre_ping=True,
                 pool_recycle=3600,
+                connect_args=connect_args,
             )
             logger.info("RecordingMetadataStore initialized for web service (pooled)")
         
