@@ -32,7 +32,6 @@ from sqlalchemy.pool import NullPool, QueuePool
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from src.domain.models import Recording, RecordingStatus, TrackType
 
@@ -147,14 +146,19 @@ class RecordingMetadataStore:
             database_url: PostgreSQL connection string
             is_worker: True if running in worker context, False for web service
         """
-        database_url = self._add_cache_size_to_url(database_url)
-        
         if is_worker:
             self._engine = create_async_engine(
                 database_url,
                 echo=False,
                 poolclass=NullPool,
+                connect_args={
+                    "statement_cache_size": 0,
+                    "server_settings": {
+                        "jit": "off"
+                    }
+                }
             )
+            logger.info("RecordingMetadataStore initialized for worker (NullPool, no statement cache)")
         else:
             self._engine = create_async_engine(
                 database_url,
@@ -163,27 +167,20 @@ class RecordingMetadataStore:
                 max_overflow=20,
                 pool_pre_ping=True,
                 pool_recycle=3600,
+                connect_args={
+                    "statement_cache_size": 0,
+                    "server_settings": {
+                        "jit": "off"
+                    }
+                }
             )
+            logger.info("RecordingMetadataStore initialized for web service (connection pool)")
         
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
             expire_on_commit=False,
         )
         self._initialized = False
-
-    @staticmethod
-    def _add_cache_size_to_url(url: str) -> str:
-        """Add statement_cache_size=0 to database URL for pgbouncer compatibility."""
-        parsed = urlparse(url)
-        query_params = parse_qs(parsed.query)
-        
-        query_params['statement_cache_size'] = ['0']
-        query_params['prepared_statement_cache_size'] = ['0']
-        
-        new_query = urlencode(query_params, doseq=True)
-        
-        new_parsed = parsed._replace(query=new_query)
-        return urlunparse(new_parsed)
 
     async def initialize(self) -> None:
         """Initialise database schema if it does not yet exist."""
