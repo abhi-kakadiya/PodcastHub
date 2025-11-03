@@ -146,32 +146,29 @@ class RecordingMetadataStore:
             is_worker: True if running in worker context, False for web service
         """
         from sqlalchemy.pool import NullPool
-        import asyncpg
-        from functools import partial
         
-        from sqlalchemy.engine.url import make_url
-        url_obj = make_url(database_url)
+        connect_args = {
+            "prepared_statement_cache_size": 0,
+            "statement_cache_size": 0, 
+            "server_settings": {
+                "jit": "off",
+            }
+        }
         
-        async def create_async_connection():
-            return await asyncpg.connect(
-                host=url_obj.host,
-                port=url_obj.port or 5432,
-                user=url_obj.username,
-                password=url_obj.password,
-                database=url_obj.database,
-                statement_cache_size=0,
-                server_settings={"jit": "off"},
-                ssl=url_obj.query.get('ssl', 'prefer') if url_obj.query else 'prefer',
-            )
+        execution_options = {
+            "compiled_cache": None,
+        }
         
         if is_worker:
             self._engine = create_async_engine(
                 database_url,
                 echo=False,
                 poolclass=NullPool,
-                async_creator=create_async_connection,
+                connect_args=connect_args,
+                execution_options=execution_options,
+                pool_pre_ping=False,
             )
-            logger.info("RecordingMetadataStore initialized for worker (NullPool, custom creator)")
+            logger.info("RecordingMetadataStore initialized for worker (NullPool, no prepared statements)")
         else:
             self._engine = create_async_engine(
                 database_url,
@@ -180,15 +177,22 @@ class RecordingMetadataStore:
                 max_overflow=20,
                 pool_pre_ping=True,
                 pool_recycle=3600,
-                async_creator=create_async_connection,
+                connect_args=connect_args,
+                execution_options=execution_options,
             )
-            logger.info("RecordingMetadataStore initialized for web service (pooled, custom creator)")
+            logger.info("RecordingMetadataStore initialized for web service (pooled, no prepared statements)")
         
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
             expire_on_commit=False,
         )
         self._initialized = False
+        
+        from sqlalchemy import event
+        
+        @event.listens_for(self._engine.sync_engine, "connect")
+        def receive_connect(dbapi_conn, connection_record):
+            pass
 
     async def initialize(self) -> None:
         """Initialise database schema if it does not yet exist."""
