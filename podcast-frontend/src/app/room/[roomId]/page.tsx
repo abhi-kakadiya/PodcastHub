@@ -894,7 +894,6 @@ export default function MeetingRoom() {
                         ? remoteRoleLabel
                         : 'Screen share'}
                   </p>
-                  <p className="text-xs text-slate-200/80">Click outside the video to return to the stage.</p>
                 </div>
                 <button
                   onClick={(event) => {

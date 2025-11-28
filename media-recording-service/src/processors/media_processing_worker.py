@@ -49,7 +49,7 @@ class MediaProcessingWorker:
             secure=settings.minio_secure,
             bucket_name=settings.minio_bucket,
         )
-        self._metadata_store = RecordingMetadataStore(settings.database_url, settings.is_worker)
+        self._metadata_store = RecordingMetadataStore(settings.database_url)
         self._max_attempts = 3
         self._connection: Optional[aio_pika.RobustConnection] = None
         self._channel: Optional[aio_pika.Channel] = None
@@ -58,6 +58,9 @@ class MediaProcessingWorker:
             rabbitmq_url=self._rabbitmq_url,
             exchange_name=self._exchange_name,
         )
+        self._shutdown_event = asyncio.Event()
+        self._active_tasks: set = set()
+        self._ffmpeg_processes: set = set()
 
     async def start(self) -> None:
         """Start consuming processing commands indefinitely."""
@@ -65,6 +68,7 @@ class MediaProcessingWorker:
         await self._metadata_store.initialize()
         self._connection = await aio_pika.connect_robust(self._rabbitmq_url)
         self._channel = await self._connection.channel()
+        await self._channel.set_qos(prefetch_count=2)  # Limit concurrent processing
         self._queue = await self._channel.declare_queue(
             self._queue_name,
             durable=True,
@@ -77,29 +81,67 @@ class MediaProcessingWorker:
         )
 
         await self._queue.consume(self._handle_message, no_ack=False)
-        await asyncio.Future()  # Run forever
+        
+        # Wait for shutdown signal
+        await self._shutdown_event.wait()
+        
+        # Wait for active tasks to complete
+        if self._active_tasks:
+            logger.info("Waiting for %d active tasks to complete...", len(self._active_tasks))
+            await asyncio.gather(*self._active_tasks, return_exceptions=True)
 
     async def _handle_message(self, message: aio_pika.IncomingMessage) -> None:
         """Process a single queue message."""
+        if self._shutdown_event.is_set():
+            await message.reject(requeue=True)
+            return
+            
+        task = asyncio.create_task(self._process_message(message))
+        self._active_tasks.add(task)
+        task.add_done_callback(self._active_tasks.discard)
+
+    async def _process_message(self, message: aio_pika.IncomingMessage) -> None:
+        """Process a single message with proper error handling."""
         try:
             payload = json.loads(message.body.decode("utf-8"))
         except json.JSONDecodeError as exc:
             logger.error("Invalid processing payload: %s", exc)
-            await message.ack()
+            await self._safe_ack(message)
             return
 
         attempts = int(payload.get("attempts", 0))
 
         try:
             await self._process_payload(payload)
+            await self._safe_ack(message)
+        except asyncio.CancelledError:
+            logger.warning("Processing cancelled for recording %s, requeueing", payload.get("recording_id"))
+            await self._safe_reject(message, requeue=True)
+            raise
         except FileNotFoundError:
             logger.exception("FFmpeg executable not found on worker host")
             await self._handle_processing_exception(payload, attempts, "ffmpeg executable not found")
+            await self._safe_ack(message)
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception("Failed to process recording payload: %s", exc)
             await self._handle_processing_exception(payload, attempts, str(exc))
-        finally:
-            await message.ack()
+            await self._safe_ack(message)
+
+    async def _safe_ack(self, message: aio_pika.IncomingMessage) -> None:
+        """Safely acknowledge a message, ignoring channel errors."""
+        try:
+            if not message.channel.is_closed:
+                await message.ack()
+        except Exception as exc:
+            logger.debug("Failed to ack message (channel likely closed): %s", exc)
+
+    async def _safe_reject(self, message: aio_pika.IncomingMessage, requeue: bool = True) -> None:
+        """Safely reject a message, ignoring channel errors."""
+        try:
+            if not message.channel.is_closed:
+                await message.reject(requeue=requeue)
+        except Exception as exc:
+            logger.debug("Failed to reject message (channel likely closed): %s", exc)
 
     async def _process_payload(self, payload: Dict[str, Any]) -> None:
         """Download chunks, run FFmpeg concat, upload processed output."""
@@ -179,7 +221,7 @@ class MediaProcessingWorker:
                         "-c:v",
                         "libx264",
                         "-preset",
-                        "veryfast",
+                        "ultrafast",
                         "-crf",
                         "20",
                         "-pix_fmt",
@@ -267,13 +309,48 @@ class MediaProcessingWorker:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await process.communicate()
+        
+        self._ffmpeg_processes.add(process)
+        try:
+            stdout, stderr = await process.communicate()
+        except asyncio.CancelledError:
+            # Gracefully terminate FFmpeg on cancellation
+            logger.info("FFmpeg process interrupted, terminating...")
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+            raise
+        finally:
+            self._ffmpeg_processes.discard(process)
+            
         if process.returncode != 0:
             error_output = (stderr or stdout).decode("utf-8", errors="ignore").strip()
             raise RuntimeError(f"FFmpeg command failed: {error_output}")
 
+    async def shutdown(self) -> None:
+        """Initiate graceful shutdown."""
+        logger.info("Initiating graceful shutdown...")
+        self._shutdown_event.set()
+        
+        # Stop consuming new messages
+        if self._queue:
+            try:
+                await self._queue.cancel(self._queue.consumer_tags[0])
+            except Exception as exc:
+                logger.debug("Error cancelling queue consumer: %s", exc)
+
     async def close(self) -> None:
         """Clean up connections."""
+        # Terminate any remaining FFmpeg processes
+        for process in list(self._ffmpeg_processes):
+            try:
+                process.terminate()
+            except Exception:
+                pass
+                
         await self._event_publisher.disconnect()
         if self._connection and not self._connection.is_closed:
             await self._connection.close()
@@ -329,7 +406,7 @@ class MediaProcessingWorker:
 
     async def _requeue_payload(self, payload: Dict[str, Any]) -> None:
         """Requeue payload back onto processing queue."""
-        if not self._channel or not self._queue:
+        if not self._channel or not self._queue or self._channel.is_closed:
             logger.error("Cannot requeue payload: channel or queue not initialised")
             return
 
@@ -346,24 +423,20 @@ class MediaProcessingWorker:
 async def _run_worker() -> None:
     """Helper to run the worker until interruption."""
     worker = MediaProcessingWorker()
+    
+    loop = asyncio.get_running_loop()
+    
+    def handle_signal():
+        logger.info("Received shutdown signal")
+        asyncio.create_task(worker.shutdown())
+    
+    # Register signal handlers
+    import signal
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, handle_signal)
+    
     try:
         await worker.start()
-    except asyncio.CancelledError:
-        logger.info("MediaProcessingWorker cancellation received")
-    finally:
-        await worker.close()
-
-
-async def _run_worker_with_health() -> None:
-    """Run both the worker and health server concurrently."""
-    from src.processors.health_server import start_health_server
-    
-    worker = MediaProcessingWorker()
-    try:
-        await asyncio.gather(
-            start_health_server(),
-            worker.start(),
-        )
     except asyncio.CancelledError:
         logger.info("MediaProcessingWorker cancellation received")
     finally:
@@ -377,6 +450,6 @@ if __name__ == "__main__":
     )
 
     try:
-        asyncio.run(_run_worker_with_health())
+        asyncio.run(_run_worker())
     except KeyboardInterrupt:
         logger.info("MediaProcessingWorker interrupted by user")
