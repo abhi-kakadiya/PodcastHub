@@ -12,6 +12,7 @@ interface TrackRecorder {
   sequence: number;
   uploadedChunks: number;
   totalChunks: number;
+  needsRestartAfterPause: boolean;
 }
 
 interface UploadProgress {
@@ -20,7 +21,10 @@ interface UploadProgress {
   screen: { uploaded: number; total: number };
 }
 
-const CHUNK_INTERVAL = 1000; // 5 seconds
+const DEFAULT_CHUNK_INTERVAL_MS = 4000; // 4s chunks keep payloads larger and reduce request overhead
+const envChunkInterval = Number(process.env.NEXT_PUBLIC_CHUNK_INTERVAL_MS);
+const CHUNK_INTERVAL =
+  Number.isFinite(envChunkInterval) && envChunkInterval > 0 ? envChunkInterval : DEFAULT_CHUNK_INTERVAL_MS;
 const MAX_UPLOAD_RETRIES = 5;
 
 export function useRecording(
@@ -44,9 +48,30 @@ export function useRecording(
     video: TrackRecorder;
     screen: TrackRecorder;
   }>({
-    audio: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
-    video: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
-    screen: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
+    audio: {
+      recorder: null,
+      recordingId: null,
+      sequence: 0,
+      uploadedChunks: 0,
+      totalChunks: 0,
+      needsRestartAfterPause: false,
+    },
+    video: {
+      recorder: null,
+      recordingId: null,
+      sequence: 0,
+      uploadedChunks: 0,
+      totalChunks: 0,
+      needsRestartAfterPause: false,
+    },
+    screen: {
+      recorder: null,
+      recordingId: null,
+      sequence: 0,
+      uploadedChunks: 0,
+      totalChunks: 0,
+      needsRestartAfterPause: false,
+    },
   });
 
   // Calculate SHA-256 checksum
@@ -288,6 +313,7 @@ export function useRecording(
           recorders.current.audio.sequence = 0;
           recorders.current.audio.uploadedChunks = 0;
           recorders.current.audio.totalChunks = 0;
+          recorders.current.audio.needsRestartAfterPause = false;
           recorder.start(CHUNK_INTERVAL);
           console.log('OK Audio recorder started');
         }
@@ -301,6 +327,7 @@ export function useRecording(
           recorders.current.video.sequence = 0;
           recorders.current.video.uploadedChunks = 0;
           recorders.current.video.totalChunks = 0;
+          recorders.current.video.needsRestartAfterPause = false;
           recorder.start(CHUNK_INTERVAL);
           console.log('OK Video recorder started');
         }
@@ -314,6 +341,7 @@ export function useRecording(
           recorders.current.screen.sequence = 0;
           recorders.current.screen.uploadedChunks = 0;
           recorders.current.screen.totalChunks = 0;
+          recorders.current.screen.needsRestartAfterPause = false;
           recorder.start(CHUNK_INTERVAL);
           console.log('Screen recorder started');
         }
@@ -340,9 +368,31 @@ export function useRecording(
       });
 
       // Pause all active recorders
-      Object.values(recorders.current).forEach(({ recorder }) => {
-        if (recorder && recorder.state === 'recording') {
-          recorder.pause();
+      Object.entries(recorders.current).forEach(([trackKey, trackState]) => {
+        const recorder = trackState.recorder;
+        if (!recorder) {
+          return;
+        }
+
+        if (recorder.state === 'recording' && typeof recorder.pause === 'function') {
+          try {
+            recorder.pause();
+            trackState.needsRestartAfterPause = false;
+            return;
+          } catch (error) {
+            console.warn(`Pause failed for ${trackKey}; stopping instead`, error);
+          }
+        }
+
+        if (recorder.state === 'recording') {
+          console.warn(`Pausing ${trackKey} by stopping recorder (pause unsupported)`);
+          try {
+            recorder.stop();
+          } catch (stopError) {
+            console.error(`Error stopping ${trackKey} recorder while pausing:`, stopError);
+          }
+          trackState.recorder = null;
+          trackState.needsRestartAfterPause = true;
         }
       });
 
@@ -367,9 +417,45 @@ export function useRecording(
       });
 
       // Resume all active recorders
-      Object.values(recorders.current).forEach(({ recorder }) => {
+      const trackStreams = {
+        audio: audioStream,
+        video: videoStream,
+        screen: screenStream,
+      };
+
+      (['audio', 'video', 'screen'] as const).forEach((trackType) => {
+        const track = recorders.current[trackType];
+        const recorder = track.recorder;
+
         if (recorder && recorder.state === 'paused') {
-          recorder.resume();
+          try {
+            recorder.resume();
+            track.needsRestartAfterPause = false;
+            return;
+          } catch (error) {
+            console.warn(`Resume failed for ${trackType} recorder; recreating`, error);
+            track.recorder = null;
+            track.needsRestartAfterPause = true;
+          }
+        }
+
+        const shouldRestart = !recorder || track.needsRestartAfterPause || recorder.state === 'inactive';
+        if (!shouldRestart) {
+          return;
+        }
+
+        const sourceStream = trackStreams[trackType];
+        if (!sourceStream || !track.recordingId) {
+          console.warn(`Cannot restart ${trackType} recorder: missing stream or recording ID`);
+          return;
+        }
+
+        const newRecorder = createRecorder(trackType, sourceStream, track.recordingId);
+        if (newRecorder) {
+          track.recorder = newRecorder;
+          track.needsRestartAfterPause = false;
+          newRecorder.start(CHUNK_INTERVAL);
+          console.log(`Recreated ${trackType} recorder for resume`);
         }
       });
 
@@ -379,7 +465,7 @@ export function useRecording(
       console.error('Error resuming recording:', error);
       throw error;
     }
-  }, [sessionId, participantId, apiUrl]);
+  }, [sessionId, participantId, apiUrl, audioStream, videoStream, screenStream, createRecorder]);
 
   // Stop recording
   const stopRecording = useCallback(async () => {
@@ -409,9 +495,30 @@ export function useRecording(
 
       // Reset recorders
       recorders.current = {
-        audio: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
-        video: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
-        screen: { recorder: null, recordingId: null, sequence: 0, uploadedChunks: 0, totalChunks: 0 },
+        audio: {
+          recorder: null,
+          recordingId: null,
+          sequence: 0,
+          uploadedChunks: 0,
+          totalChunks: 0,
+          needsRestartAfterPause: false,
+        },
+        video: {
+          recorder: null,
+          recordingId: null,
+          sequence: 0,
+          uploadedChunks: 0,
+          totalChunks: 0,
+          needsRestartAfterPause: false,
+        },
+        screen: {
+          recorder: null,
+          recordingId: null,
+          sequence: 0,
+          uploadedChunks: 0,
+          totalChunks: 0,
+          needsRestartAfterPause: false,
+        },
       };
 
       console.log('Recording stopped');
