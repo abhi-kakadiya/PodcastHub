@@ -20,7 +20,7 @@ interface UploadProgress {
   screen: { uploaded: number; total: number };
 }
 
-const CHUNK_INTERVAL = 5000; // 5 seconds
+const CHUNK_INTERVAL = 1000; // 5 seconds
 const MAX_UPLOAD_RETRIES = 5;
 
 export function useRecording(
