@@ -379,7 +379,7 @@ MIT License - see LICENSE file
 ## Acknowledgments
 
 **Academic:**
-- Course: CAS 735 - Software Design
+- Course: CAS 735 - Microservice Oriented Architecture
 - Institution: McMaster University
 - Department: Computing and Software
 - Semester: Fall 2025
