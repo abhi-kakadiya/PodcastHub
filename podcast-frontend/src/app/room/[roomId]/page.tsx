@@ -777,7 +777,7 @@ export default function MeetingRoom() {
                   Copy link
                 </button>
               </div>
-              <p className="mt-1 text-xs text-slate-400">Session ID - {userData?.sessionId ?? roomId}</p>
+              <p className="mt-1 text-xs text-slate-400">Session ID - {(userData?.sessionId ?? roomId)?.split("-")[0]}</p>
               <p className="mt-1 text-xs text-slate-500">
                 {isConnected ? 'Connection secured over WebRTC' : 'Waiting for peer connection'}
               </p>
