@@ -37,6 +37,7 @@ export default function CreateMeeting() {
           role: 'host',
           sessionId: data.session_id,
           roomCode: data.room_code,
+          peerName: null,
         }),
       );
 
@@ -53,6 +54,7 @@ export default function CreateMeeting() {
           role: 'host',
           sessionId,
           roomCode,
+          peerName: null,
         }),
       );
 

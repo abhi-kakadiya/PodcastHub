@@ -13,7 +13,6 @@ import {
   Users,
   Radio,
   Share2,
-  Copy,
   AlertTriangle,
 } from 'lucide-react';
 import { useWebRTC, type SignalMessage } from '@/hooks/use-webrtc';
@@ -769,13 +768,6 @@ export default function MeetingRoom() {
             <div className="border-b border-white/10 px-6 py-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold text-white">People</h2>
-                <button
-                  onClick={handleCopyInviteLink}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300 transition hover:border-white/20 hover:text-white"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy link
-                </button>
               </div>
               <p className="mt-1 text-xs text-slate-400">Session ID - {(userData?.sessionId ?? roomId)?.split("-")[0]}</p>
               <p className="mt-1 text-xs text-slate-500">

@@ -556,6 +556,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
                   offer: pc.localDescription ?? offer,
                 });
               }
+              onSignalMessage?.(message);
               break;
 
             case 'offer':
@@ -667,6 +668,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
                 peerConnection.current.close();
                 peerConnection.current = null;
               }
+              onSignalMessage?.(message);
               break;
 
             case 'screen-share-started':

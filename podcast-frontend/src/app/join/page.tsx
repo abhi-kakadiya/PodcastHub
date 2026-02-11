@@ -43,6 +43,7 @@ export default function JoinMeeting() {
           role: 'guest',
           sessionId: data.session_id,
           roomCode: code,
+          peerName: data.host_id ?? null,
         }),
       );
 
@@ -58,6 +59,7 @@ export default function JoinMeeting() {
           role: 'guest',
           sessionId,
           roomCode: code,
+          peerName: null,
         }),
       );
 
