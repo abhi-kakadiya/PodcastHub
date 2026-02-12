@@ -87,8 +87,8 @@ export default function JoinMeeting() {
   };
 
   return (
-    <div className="h-screen overflow-hidden bg-[#080910] text-slate-100">
-      <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-4 py-5 sm:px-6">
+    <div className="min-h-dvh bg-[#080910] text-slate-100">
+      <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-4 py-4 sm:px-6 sm:py-5">
         <header className="flex items-center justify-between">
           <button
             onClick={() => router.push('/')}
@@ -100,13 +100,13 @@ export default function JoinMeeting() {
           <span className="text-xs text-slate-500">Guest view</span>
         </header>
 
-        <main className="mt-2 flex min-h-0 flex-1 flex-col items-center justify-center pb-4">
-          <div className="w-full rounded-3xl border border-white/10 bg-white/[0.04] p-6 lg:p-7">
+        <main className="mt-3 flex min-h-0 flex-1 flex-col items-center justify-start pb-6 md:mt-2 md:justify-center">
+          <div className="w-full rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:p-6 md:-translate-y-8 lg:p-7">
             <div className="flex items-start gap-3">
               <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-purple-500/30 bg-purple-500/15 text-purple-100">
                 <UserPlus className="h-6 w-6" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h1 className="text-xl font-semibold text-white md:text-2xl">Join a room</h1>
                 <p className="text-sm text-slate-400">Enter your name and the code your host shared.</p>
               </div>
@@ -139,11 +139,11 @@ export default function JoinMeeting() {
             />
           </div>
 
-          <div className="mt-4 flex w-full flex-wrap items-center justify-center gap-3">
+          <div className="mt-3 flex w-full flex-wrap items-center justify-center gap-2 md:mt-4 md:-translate-y-8 md:gap-3">
             <button
               type="button"
               onClick={() => setMediaSelection((prev) => ({ ...prev, cameraEnabled: !prev.cameraEnabled }))}
-              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition ${
+              className={`inline-flex w-[calc(50%-0.25rem)] items-center justify-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition sm:w-auto ${
                 mediaSelection.cameraEnabled
                   ? 'border-white/20 bg-white/10 text-slate-200 hover:border-white/30'
                   : 'border-rose-500/40 bg-rose-500/15 text-rose-200 hover:border-rose-400/60'
@@ -155,7 +155,7 @@ export default function JoinMeeting() {
             <button
               type="button"
               onClick={() => setMediaSelection((prev) => ({ ...prev, micEnabled: !prev.micEnabled }))}
-              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition ${
+              className={`inline-flex w-[calc(50%-0.25rem)] items-center justify-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition sm:w-auto ${
                 mediaSelection.micEnabled
                   ? 'border-white/20 bg-white/10 text-slate-200 hover:border-white/30'
                   : 'border-rose-500/40 bg-rose-500/15 text-rose-200 hover:border-rose-400/60'
@@ -167,7 +167,7 @@ export default function JoinMeeting() {
             <button
               onClick={handleJoin}
               disabled={isLoading}
-              className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-full bg-purple-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30 transition hover:bg-purple-400 disabled:cursor-not-allowed disabled:bg-purple-500/50"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-purple-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30 transition hover:bg-purple-400 sm:w-auto sm:min-w-[180px] disabled:cursor-not-allowed disabled:bg-purple-500/50"
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
               {isLoading ? 'Joining...' : 'Join room'}

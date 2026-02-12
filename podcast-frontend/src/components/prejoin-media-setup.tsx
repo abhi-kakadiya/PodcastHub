@@ -301,8 +301,8 @@ export function PreJoinMediaSetup({
   }, [micLevel]);
 
   return (
-    <section className={`mt-4 rounded-3xl border border-white/10 bg-black/20 p-4 ${className}`}>
-      <div className="flex items-center justify-between gap-3">
+    <section className={`mt-4 rounded-3xl border border-white/10 bg-black/20 p-3 sm:p-4 ${className}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-white">Device setup</h2>
           <p className="mt-1 text-xs text-slate-400">Preview camera and validate mic input before entering.</p>
@@ -317,9 +317,9 @@ export function PreJoinMediaSetup({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <div className="mt-3 grid gap-3 sm:gap-4 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950">
-          <div className="relative aspect-video h-full min-h-[220px]">
+          <div className="relative aspect-video h-full min-h-[180px] sm:min-h-[220px]">
             <video ref={videoRef} muted playsInline autoPlay className="h-full w-full object-cover" />
             {!previewStream && (
               <div className="absolute inset-0 grid place-items-center bg-slate-950/80 px-4">
@@ -340,7 +340,7 @@ export function PreJoinMediaSetup({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+        <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-2.5 sm:p-3">
           <label className="block">
             <span className="mb-2 inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
               <Camera className="h-3.5 w-3.5" />
@@ -420,7 +420,7 @@ export function PreJoinMediaSetup({
                 return (
                   <div
                     key={`meter-${index}`}
-                    className={`h-6 w-full rounded-sm transition-colors duration-100 ${
+                    className={`h-5 w-full rounded-sm transition-colors duration-100 sm:h-6 ${
                       bar.active ? `${activeColor} shadow-[0_0_10px_rgba(52,211,153,0.4)]` : 'bg-white/10'
                     }`}
                   />
