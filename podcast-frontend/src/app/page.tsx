@@ -49,24 +49,47 @@ const workflow = [
 
 export default function Home() {
   const router = useRouter();
-  const [scrolled, setScrolled] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 10);
+    const handleScroll = () => {
+      const scrollableHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (scrollableHeight <= 0) {
+        setScrollProgress(0);
+        return;
+      }
+
+      const nextProgress = Math.min(1, Math.max(0, window.scrollY / scrollableHeight));
+      setScrollProgress(nextProgress);
+    };
+
     handleScroll();
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
   }, []);
+
+  const easedScroll = 1 - Math.pow(1 - scrollProgress, 1.6);
+  const navBackgroundOpacity = 0.2 + easedScroll * 0.56;
+  const navBorderOpacity = 0.08 + easedScroll * 0.18;
+  const navShadowOpacity = 0.18 + easedScroll * 0.52;
+  const navBlur = 4 + easedScroll * 10;
+  const navGlowOpacity = 0.06 + easedScroll * 0.16;
 
   return (
     <div className="min-h-screen bg-[#080910] text-slate-100">
       <div className="mx-auto flex min-h-screen w-full max-w-[94vw] flex-col px-4 pb-20 pt-16 sm:max-w-[80vw] sm:px-6 lg:max-w-[70vw] lg:px-12">
         <header
-          className={`fixed left-1/2 top-0 z-50 flex w-full max-w-[94vw] -translate-x-1/2 flex-wrap items-center justify-between gap-4 px-4 py-4 transition-colors duration-300 sm:max-w-[80vw] sm:px-6 lg:max-w-[60vw] lg:px-12 ${
-            scrolled
-              ? "backdrop-blur-md bg-[#0b0f1f]/85 border-b border-white/10 shadow-[0_10px_40px_-24px_rgba(0,0,0,0.65)]"
-              : "bg-transparent"
-          }`}
+          className="fixed left-1/2 top-0 z-50 flex w-full max-w-[94vw] -translate-x-1/2 flex-wrap items-center justify-between gap-4 border-b px-4 py-4 transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out sm:max-w-[80vw] sm:px-6 lg:max-w-[70vw] lg:px-12"
+          style={{
+            backgroundColor: `rgba(11, 15, 31, ${navBackgroundOpacity})`,
+            borderColor: `rgba(255, 255, 255, ${navBorderOpacity})`,
+            boxShadow: `0 10px 36px -22px rgba(0, 0, 0, ${navShadowOpacity}), 0 0 0 1px rgba(139, 92, 246, ${navGlowOpacity})`,
+            backdropFilter: `saturate(135%) blur(${navBlur}px)`,
+          }}
         >
           <Logo subtitle="Remote podcast recording" />
           <div className="flex flex-wrap items-center gap-3">

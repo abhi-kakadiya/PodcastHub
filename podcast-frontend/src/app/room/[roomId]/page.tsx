@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Mic,
@@ -13,17 +13,26 @@ import {
   Users,
   Radio,
   Share2,
+  Copy,
   AlertTriangle,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
 } from 'lucide-react';
 import { useWebRTC, type SignalMessage } from '@/hooks/use-webrtc';
 import { useRecording } from '@/hooks/use-recording';
 import { Logo } from '@/components/logo';
+import { AppPopup } from '@/components/app-popup';
 
 interface UserData {
   name: string;
   role: 'host' | 'guest';
   sessionId: string;
   roomCode: string;
+  audioDeviceId?: string | null;
+  videoDeviceId?: string | null;
+  micEnabled?: boolean;
+  cameraEnabled?: boolean;
 }
 
 interface RecordingStatusState {
@@ -39,6 +48,10 @@ interface RecordingStatusState {
   processedAt?: string;
 }
 
+const SCREEN_ZOOM_MIN = 1;
+const SCREEN_ZOOM_MAX = 4;
+const SCREEN_ZOOM_STEP = 0.25;
+
 export default function MeetingRoom() {
   const params = useParams();
   const router = useRouter();
@@ -49,12 +62,33 @@ export default function MeetingRoom() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [recordingStatuses, setRecordingStatuses] = useState<Record<string, RecordingStatusState>>({});
   const [expandedView, setExpandedView] = useState<'local' | 'remote' | 'screen' | null>(null);
+  const [screenZoom, setScreenZoom] = useState(SCREEN_ZOOM_MIN);
+  const [screenPan, setScreenPan] = useState({ x: 0, y: 0 });
+  const [isPanningScreen, setIsPanningScreen] = useState(false);
+  const [screenShareError, setScreenShareError] = useState<string | null>(null);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
+  const [manualInviteLink, setManualInviteLink] = useState<string | null>(null);
   const signalHandlerRef = useRef<((message: SignalMessage) => void) | null>(null);
 
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const expandedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const screenViewportRef = useRef<HTMLDivElement | null>(null);
   const inviteFeedbackTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const screenPanDragRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  }>({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    originX: 0,
+    originY: 0,
+  });
 
   useEffect(() => {
     const storedUser = sessionStorage.getItem('podcasthub_user');
@@ -92,6 +126,12 @@ export default function MeetingRoom() {
     sessionId: userData?.sessionId || '',
     participantId: userData?.name || '',
     isHost: userData?.role === 'host',
+    mediaPreferences: {
+      audioDeviceId: userData?.audioDeviceId ?? null,
+      videoDeviceId: userData?.videoDeviceId ?? null,
+      initialMicOn: userData?.micEnabled ?? true,
+      initialCameraOn: userData?.cameraEnabled ?? true,
+    },
     onSignalMessage: relaySignalToHandler,
   });
 
@@ -186,7 +226,7 @@ export default function MeetingRoom() {
     {
       name: userData?.name ?? 'You',
       role: isHost ? 'Host' : 'Guest',
-      status: controls.isMicOn ? 'Mic on' : 'Muted',
+      status: streams.localStream ? 'Connected' : 'Connecting',
       isActive: true,
       isLocal: true,
     },
@@ -414,13 +454,198 @@ export default function MeetingRoom() {
       }
     }
 
-    if (window.prompt) {
-      window.prompt('Copy this invite link:', inviteUrl);
-      showInviteFeedback('Invite link ready');
-    } else {
-      showInviteFeedback('Unable to share invite automatically');
-    }
+    setManualInviteLink(inviteUrl);
+    showInviteFeedback('Invite link ready');
   }, [roomId, currentRoomCode, showInviteFeedback]);
+
+  const handleCopyRoomCode = useCallback(async () => {
+    if (!currentRoomCode) {
+      return;
+    }
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(currentRoomCode);
+        showInviteFeedback('Room code copied');
+        return;
+      } catch (error) {
+        console.error('Failed to copy room code:', error);
+      }
+    }
+
+    showInviteFeedback('Unable to copy room code');
+  }, [currentRoomCode, showInviteFeedback]);
+
+  const closeManualInvitePopup = useCallback(() => {
+    setManualInviteLink(null);
+  }, []);
+
+  const copyInviteFromPopup = useCallback(async () => {
+    if (!manualInviteLink) {
+      return;
+    }
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(manualInviteLink);
+        showInviteFeedback('Invite link copied');
+        setManualInviteLink(null);
+        return;
+      } catch (error) {
+        console.error('Failed to copy invite link from popup:', error);
+      }
+    }
+
+    showInviteFeedback('Select and copy the link manually');
+  }, [manualInviteLink, showInviteFeedback]);
+
+  const getScreenShareErrorMessage = useCallback(
+    (error: unknown) => {
+      if (controls.screenShareSupportMessage) {
+        return controls.screenShareSupportMessage;
+      }
+
+      const errorName = (error as { name?: string })?.name;
+
+      if (errorName === 'NotAllowedError' || errorName === 'AbortError') {
+        return 'Screen share was canceled or blocked. Allow permission and try again.';
+      }
+
+      if (errorName === 'NotSupportedError' || errorName === 'TypeError') {
+        return 'Screen sharing is not available on this device/browser.';
+      }
+
+      if (errorName === 'SecurityError') {
+        return 'Screen sharing requires a secure HTTPS connection.';
+      }
+
+      return 'Unable to start screen share on this device right now.';
+    },
+    [controls.screenShareSupportMessage],
+  );
+
+  const handleScreenShareClick = useCallback(async () => {
+    if (controls.isScreenSharing) {
+      controls.stopScreenShare();
+      return;
+    }
+
+    try {
+      await controls.startScreenShare();
+    } catch (error) {
+      console.error('Screen share start failed:', error);
+      setScreenShareError(getScreenShareErrorMessage(error));
+    }
+  }, [controls, getScreenShareErrorMessage]);
+
+  const clampScreenPan = useCallback((pan: { x: number; y: number }, zoomLevel: number) => {
+    const viewport = screenViewportRef.current;
+    if (!viewport || zoomLevel <= SCREEN_ZOOM_MIN) {
+      return { x: 0, y: 0 };
+    }
+
+    const { width, height } = viewport.getBoundingClientRect();
+    const maxX = Math.max(0, ((zoomLevel - 1) * width) / 2);
+    const maxY = Math.max(0, ((zoomLevel - 1) * height) / 2);
+
+    return {
+      x: Math.max(-maxX, Math.min(maxX, pan.x)),
+      y: Math.max(-maxY, Math.min(maxY, pan.y)),
+    };
+  }, []);
+
+  const applyScreenZoom = useCallback(
+    (delta: number) => {
+      setScreenZoom((prevZoom) => {
+        const nextZoom = Math.max(SCREEN_ZOOM_MIN, Math.min(SCREEN_ZOOM_MAX, prevZoom + delta));
+        setScreenPan((prevPan) => clampScreenPan(prevPan, nextZoom));
+        return nextZoom;
+      });
+    },
+    [clampScreenPan],
+  );
+
+  const resetScreenViewport = useCallback(() => {
+    setScreenZoom(SCREEN_ZOOM_MIN);
+    setScreenPan({ x: 0, y: 0 });
+    setIsPanningScreen(false);
+    screenPanDragRef.current.active = false;
+    screenPanDragRef.current.pointerId = null;
+  }, []);
+
+  useEffect(() => {
+    if (expandedView !== 'screen') {
+      resetScreenViewport();
+    }
+  }, [expandedView, resetScreenViewport]);
+
+  const handleExpandedScreenWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      if (expandedView !== 'screen') {
+        return;
+      }
+
+      event.preventDefault();
+      const step = event.deltaY < 0 ? SCREEN_ZOOM_STEP : -SCREEN_ZOOM_STEP;
+      applyScreenZoom(step);
+    },
+    [applyScreenZoom, expandedView],
+  );
+
+  const handleScreenPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (expandedView !== 'screen' || screenZoom <= SCREEN_ZOOM_MIN) {
+        return;
+      }
+
+      if (event.pointerType === 'mouse' && event.button !== 0) {
+        return;
+      }
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+      screenPanDragRef.current = {
+        active: true,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: screenPan.x,
+        originY: screenPan.y,
+      };
+      setIsPanningScreen(true);
+    },
+    [expandedView, screenPan.x, screenPan.y, screenZoom],
+  );
+
+  const handleScreenPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = screenPanDragRef.current;
+      if (!dragState.active || dragState.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const nextPan = {
+        x: dragState.originX + (event.clientX - dragState.startX),
+        y: dragState.originY + (event.clientY - dragState.startY),
+      };
+      setScreenPan(clampScreenPan(nextPan, screenZoom));
+    },
+    [clampScreenPan, screenZoom],
+  );
+
+  const endScreenPanning = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = screenPanDragRef.current;
+    if (!dragState.active || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    screenPanDragRef.current.active = false;
+    screenPanDragRef.current.pointerId = null;
+    setIsPanningScreen(false);
+  }, []);
 
   const closeExpandedView = useCallback(() => setExpandedView(null), []);
 
@@ -630,6 +855,14 @@ export default function MeetingRoom() {
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-300">
                 <span className="text-slate-500">Room code</span>
                 <span className="font-semibold text-white">{currentRoomCode}</span>
+                <button
+                  onClick={() => void handleCopyRoomCode()}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-white/8 text-slate-300 transition hover:border-white/30 hover:bg-white/15 hover:text-white"
+                  title="Copy room code"
+                  aria-label="Copy room code"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
               </div>
               <div className="hidden items-center gap-2 md:flex">
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
@@ -697,29 +930,39 @@ export default function MeetingRoom() {
                     {controls.isCameraOn ? <VideoIcon className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
                   </button>
                   <button
-                    onClick={controls.isScreenSharing ? controls.stopScreenShare : controls.startScreenShare}
+                    onClick={() => {
+                      void handleScreenShareClick();
+                    }}
                     className={`flex h-12 w-12 items-center justify-center rounded-full border transition hover:border-white/30 ${
                       controls.isScreenSharing
                         ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
-                        : 'border-white/15 bg-white/5 text-white'
+                        : controls.canScreenShare
+                          ? 'border-white/15 bg-white/5 text-white'
+                          : 'border-white/10 bg-white/5 text-slate-500'
                     }`}
-                    title={controls.isScreenSharing ? 'Stop sharing' : 'Share screen'}
+                    title={
+                      controls.isScreenSharing
+                        ? 'Stop sharing'
+                        : controls.canScreenShare
+                          ? 'Share screen'
+                          : controls.screenShareSupportMessage ?? 'Screen share unavailable'
+                    }
                   >
                     {controls.isScreenSharing ? <MonitorOff className="h-5 w-5" /> : <Monitor className="h-5 w-5" />}
                   </button>
-                </div>
-
-                <div className="flex items-center justify-center gap-3 md:justify-end">
                   {isHost && !isRecording && (
                     <button
                       onClick={handleStartRecordingClick}
                       disabled={!isConnected}
-                      className="inline-flex items-center gap-2 rounded-full bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 disabled:cursor-not-allowed disabled:bg-red-500/40"
+                      className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500 text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:bg-red-500/45 disabled:text-white/80"
+                      title="Start recording"
                     >
-                      <Radio className="h-4 w-4" />
-                      Start
+                      <Radio className="h-5 w-5" />
                     </button>
                   )}
+                </div>
+
+                <div className="flex items-center justify-center gap-3 md:justify-end">
                   {isHost && isRecording && !isPaused && (
                     <>
                       <button
@@ -764,14 +1007,12 @@ export default function MeetingRoom() {
             </div>
           </section>
 
-          <aside className="hidden w-full max-w-xs flex-col border-l border-white/10 bg-white/[0.03] backdrop-blur lg:flex xl:max-w-sm">
+          <aside className="hidden w-full max-w-[17.5rem] flex-col border-l border-white/10 bg-white/[0.03] backdrop-blur lg:flex xl:max-w-[18.75rem]">
             <div className="border-b border-white/10 px-6 py-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold text-white">People</h2>
-              </div>
-              <p className="mt-1 text-xs text-slate-400">Session ID - {(userData?.sessionId ?? roomId)?.split("-")[0]}</p>
+              <h2 className="text-base font-semibold text-white">Session ID</h2>
+              <p className="mt-2 text-xs text-slate-400">{userData?.sessionId ?? roomId}</p>
               <p className="mt-1 text-xs text-slate-500">
-                {isConnected ? 'Connection secured over WebRTC' : 'Waiting for peer connection'}
+                {isConnected ? 'Peer connected' : 'Waiting for peer connection'}
               </p>
             </div>
             <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
@@ -868,13 +1109,66 @@ export default function MeetingRoom() {
               onClick={(event) => event.stopPropagation()}
               className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-white/20 bg-slate-900/80 shadow-2xl backdrop-blur-xl"
             >
-              <video
-                ref={expandedVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="h-full w-full bg-black object-contain"
-              />
+              <div
+                ref={screenViewportRef}
+                onWheel={handleExpandedScreenWheel}
+                onPointerDown={handleScreenPointerDown}
+                onPointerMove={handleScreenPointerMove}
+                onPointerUp={endScreenPanning}
+                onPointerCancel={endScreenPanning}
+                className={`relative h-[min(78vh,calc(100vh-7rem))] w-full overflow-hidden bg-black ${
+                  expandedView === 'screen'
+                    ? `${screenZoom > SCREEN_ZOOM_MIN ? (isPanningScreen ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'} touch-none`
+                    : 'cursor-default'
+                }`}
+              >
+                <video
+                  ref={expandedVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="h-full w-full bg-black object-contain"
+                  style={
+                    expandedView === 'screen'
+                      ? {
+                          transform: `translate(${screenPan.x}px, ${screenPan.y}px) scale(${screenZoom})`,
+                          transformOrigin: 'center center',
+                          transition: isPanningScreen ? 'none' : 'transform 140ms ease-out',
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+              {expandedView === 'screen' && (
+                <div className="absolute top-5 right-5 z-20 flex items-center gap-2 rounded-full border border-white/20 bg-black/55 px-2 py-1 backdrop-blur-md">
+                  <button
+                    type="button"
+                    onClick={() => applyScreenZoom(-SCREEN_ZOOM_STEP)}
+                    disabled={screenZoom <= SCREEN_ZOOM_MIN}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:border-white/35 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <ZoomOut className="h-4 w-4" />
+                  </button>
+                  <span className="min-w-12 text-center text-xs font-semibold text-slate-200">
+                    {Math.round(screenZoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => applyScreenZoom(SCREEN_ZOOM_STEP)}
+                    disabled={screenZoom >= SCREEN_ZOOM_MAX}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:border-white/35 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <ZoomIn className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetScreenViewport}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:border-white/35 hover:bg-white/20"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               <div className="absolute left-0 right-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/30 to-transparent px-6 py-4 text-sm text-white">
                 <div>
                   <p className="font-semibold">
@@ -886,6 +1180,9 @@ export default function MeetingRoom() {
                         ? remoteRoleLabel
                         : 'Screen share'}
                   </p>
+                  {expandedView === 'screen' && (
+                    <p className="mt-1 text-xs text-slate-300">Scroll or use +/- to zoom. Drag to pan.</p>
+                  )}
                 </div>
                 <button
                   onClick={(event) => {
@@ -933,6 +1230,49 @@ export default function MeetingRoom() {
           </div>
         </div>
       )}
+
+      <AppPopup
+        open={Boolean(screenShareError)}
+        tone="warning"
+        title="Screen share unavailable"
+        message={screenShareError ?? ''}
+        onClose={() => setScreenShareError(null)}
+        actions={[
+          {
+            label: 'Close',
+            tone: 'secondary',
+            onClick: () => setScreenShareError(null),
+          },
+        ]}
+      />
+
+      <AppPopup
+        open={Boolean(manualInviteLink)}
+        tone="info"
+        title="Copy invite link"
+        message="Share this link manually if auto-copy is unavailable."
+        onClose={closeManualInvitePopup}
+        actions={[
+          {
+            label: 'Close',
+            tone: 'secondary',
+            onClick: closeManualInvitePopup,
+          },
+          {
+            label: 'Copy link',
+            onClick: () => {
+              void copyInviteFromPopup();
+            },
+          },
+        ]}
+      >
+        <input
+          value={manualInviteLink ?? ''}
+          readOnly
+          onFocus={(event) => event.currentTarget.select()}
+          className="w-full rounded-2xl border border-white/12 bg-black/30 px-3 py-2 text-xs text-slate-200 outline-none"
+        />
+      </AppPopup>
     </div>
   );
 }

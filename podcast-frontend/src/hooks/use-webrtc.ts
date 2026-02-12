@@ -34,6 +34,12 @@ interface WebRTCConfig {
   sessionId: string;
   participantId: string;
   isHost: boolean;
+  mediaPreferences?: {
+    audioDeviceId?: string | null;
+    videoDeviceId?: string | null;
+    initialMicOn?: boolean;
+    initialCameraOn?: boolean;
+  };
   onSignalMessage?: (message: SignalMessage) => void;
 }
 
@@ -47,6 +53,8 @@ interface MediaControls {
   isMicOn: boolean;
   isCameraOn: boolean;
   isScreenSharing: boolean;
+  canScreenShare: boolean;
+  screenShareSupportMessage: string | null;
   toggleMic: () => void;
   toggleCamera: () => void;
   startScreenShare: () => Promise<void>;
@@ -61,7 +69,7 @@ interface UseWebRTCResult {
 }
 
 export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
-  const { sessionId, participantId, isHost, onSignalMessage } = config;
+  const { sessionId, participantId, isHost, mediaPreferences, onSignalMessage } = config;
 
   const [streams, setStreams] = useState<MediaStreams>({
     localStream: null,
@@ -72,6 +80,8 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [canScreenShare, setCanScreenShare] = useState(true);
+  const [screenShareSupportMessage, setScreenShareSupportMessage] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   const peerConnection = useRef<RTCPeerConnection | null>(null);
@@ -88,6 +98,28 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
   const isSettingRemoteAnswerPendingRef = useRef(false);
   const ignoreOfferRef = useRef(false);
   const isPolite = useMemo(() => !isHost, [isHost]);
+
+  const evaluateScreenShareSupport = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return { supported: true, message: null as string | null };
+    }
+
+    if (!window.isSecureContext) {
+      return {
+        supported: false,
+        message: 'Screen sharing requires HTTPS on mobile browsers.',
+      };
+    }
+
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function') {
+      return {
+        supported: false,
+        message: 'This browser does not support screen sharing.',
+      };
+    }
+
+    return { supported: true, message: null as string | null };
+  }, []);
 
   // WebRTC configuration with STUN and Metered.ca TURN servers
   const rtcConfig: RTCConfiguration = useMemo(() => {
@@ -138,24 +170,95 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     };
   }, []);
 
+  useEffect(() => {
+    const next = evaluateScreenShareSupport();
+    setCanScreenShare(next.supported);
+    setScreenShareSupportMessage(next.message);
+  }, [evaluateScreenShareSupport]);
+
   // Initialize local media stream
   const initializeLocalStream = useCallback(async () => {
+    const shouldRequestAudio = mediaPreferences?.initialMicOn ?? true;
+    const shouldRequestVideo = mediaPreferences?.initialCameraOn ?? true;
+
+    if (!shouldRequestAudio && !shouldRequestVideo) {
+      const emptyStream = new MediaStream();
+      localStreamRef.current = emptyStream;
+      setIsMicOn(false);
+      setIsCameraOn(false);
+      setStreams((prev) => ({ ...prev, localStream: emptyStream }));
+      console.log('âœ“ Local stream initialized with all local media disabled');
+      return emptyStream;
+    }
+
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      sampleRate: 48000,
+    };
+
+    const videoConstraints: MediaTrackConstraints = {
+      width: { ideal: 1920, max: 1920 },
+      height: { ideal: 1080, max: 1080 },
+      frameRate: { ideal: 30, max: 30 },
+    };
+
+    if (mediaPreferences?.audioDeviceId && shouldRequestAudio) {
+      audioConstraints.deviceId = { exact: mediaPreferences.audioDeviceId };
+    }
+
+    if (mediaPreferences?.videoDeviceId && shouldRequestVideo) {
+      videoConstraints.deviceId = { exact: mediaPreferences.videoDeviceId };
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-        },
-        video: {
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 },
-          frameRate: { ideal: 30, max: 30 },
-        },
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: shouldRequestAudio ? audioConstraints : false,
+          video: shouldRequestVideo ? videoConstraints : false,
+        });
+      } catch (preferredDeviceError) {
+        if (!mediaPreferences?.audioDeviceId && !mediaPreferences?.videoDeviceId) {
+          throw preferredDeviceError;
+        }
+
+        console.warn('Preferred media device not available. Falling back to browser defaults.', preferredDeviceError);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: shouldRequestAudio
+            ? {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 48000,
+              }
+            : false,
+          video: shouldRequestVideo
+            ? {
+                width: { ideal: 1920, max: 1920 },
+                height: { ideal: 1080, max: 1080 },
+                frameRate: { ideal: 30, max: 30 },
+              }
+            : false,
+        });
+      }
 
       localStreamRef.current = stream;
+      const shouldEnableMic = shouldRequestAudio;
+      const shouldEnableCamera = shouldRequestVideo;
+      const audioTracks = stream.getAudioTracks();
+      const videoTracks = stream.getVideoTracks();
+
+      audioTracks.forEach((track) => {
+        track.enabled = shouldEnableMic;
+      });
+      videoTracks.forEach((track) => {
+        track.enabled = shouldEnableCamera;
+      });
+
+      setIsMicOn(shouldEnableMic && audioTracks.length > 0);
+      setIsCameraOn(shouldEnableCamera && videoTracks.length > 0);
       setStreams((prev) => ({ ...prev, localStream: stream }));
       console.log('✓ Local stream initialized:', {
         audio: stream.getAudioTracks().length,
@@ -166,7 +269,12 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
       console.error('Error accessing media devices:', error);
       throw error;
     }
-  }, []);
+  }, [
+    mediaPreferences?.audioDeviceId,
+    mediaPreferences?.initialCameraOn,
+    mediaPreferences?.initialMicOn,
+    mediaPreferences?.videoDeviceId,
+  ]);
 
   // Toggle microphone
   const toggleMic = useCallback(() => {
@@ -197,6 +305,16 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     }
 
     try {
+      const support = evaluateScreenShareSupport();
+      setCanScreenShare(support.supported);
+      setScreenShareSupportMessage(support.message);
+
+      if (!support.supported) {
+        const err = new Error(support.message ?? 'Screen sharing is not available on this device.');
+        (err as Error & { name?: string }).name = 'NotSupportedError';
+        throw err;
+      }
+
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: 1920 },
@@ -242,7 +360,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
       console.error('Error starting screen share:', error);
       throw error;
     }
-  }, [isScreenSharing, participantId, sessionId]);
+  }, [evaluateScreenShareSupport, isScreenSharing, participantId, sessionId]);
 
   // Stop screen sharing
   const stopScreenShare = useCallback(() => {
@@ -776,6 +894,8 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     isMicOn,
     isCameraOn,
     isScreenSharing,
+    canScreenShare,
+    screenShareSupportMessage,
     toggleMic,
     toggleCamera,
     startScreenShare,
