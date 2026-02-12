@@ -60,7 +60,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#080910] text-slate-100">
-      <div className="mx-auto flex min-h-screen w-full max-w-[94vw] flex-col px-4 pb-20 pt-12 sm:max-w-[80vw] sm:px-6 lg:max-w-[60vw] lg:px-12">
+      <div className="mx-auto flex min-h-screen w-full max-w-[94vw] flex-col px-4 pb-20 pt-16 sm:max-w-[80vw] sm:px-6 lg:max-w-[70vw] lg:px-12">
         <header
           className={`fixed left-1/2 top-0 z-50 flex w-full max-w-[94vw] -translate-x-1/2 flex-wrap items-center justify-between gap-4 px-4 py-4 transition-colors duration-300 sm:max-w-[80vw] sm:px-6 lg:max-w-[60vw] lg:px-12 ${
             scrolled
