@@ -5,8 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Users, UserPlus, Loader2, ArrowLeft, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { PreJoinMediaSetup, type MediaDeviceSelection } from '@/components/prejoin-media-setup';
 import { AppPopup } from '@/components/app-popup';
-import { ServiceWakeupOverlay } from '@/components/service-wakeup-overlay';
-import { ServiceWakeupError, requestWithServiceWakeup, type WakeupProgress } from '@/utils/service-wakeup';
+import { ServiceWakeupError, requestWithServiceWakeup } from '@/utils/service-wakeup';
 
 export default function JoinMeeting() {
   const router = useRouter();
@@ -15,13 +14,6 @@ export default function JoinMeeting() {
   const [isLoading, setIsLoading] = useState(false);
   const [showValidationPopup, setShowValidationPopup] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [wakeupProgress, setWakeupProgress] = useState<WakeupProgress>({
-    attempt: 0,
-    maxAttempts: 8,
-    elapsedMs: 0,
-    phase: 'starting',
-    lastError: null,
-  });
   const [mediaSelection, setMediaSelection] = useState<MediaDeviceSelection>({
     audioDeviceId: null,
     videoDeviceId: null,
@@ -42,13 +34,6 @@ export default function JoinMeeting() {
     const healthUrl = `${apiUrl.replace(/\/api\/?$/, '')}/health`;
 
     setJoinError(null);
-    setWakeupProgress({
-      attempt: 0,
-      maxAttempts: 8,
-      elapsedMs: 0,
-      phase: 'starting',
-      lastError: null,
-    });
     setIsLoading(true);
     try {
       const response = await requestWithServiceWakeup({
@@ -61,13 +46,10 @@ export default function JoinMeeting() {
               participant_id: name,
             }),
             signal,
-          }),
+        }),
         healthCheckUrl: healthUrl,
         maxAttempts: 8,
         requestTimeoutMs: 15000,
-        onProgress: (progress) => {
-          setWakeupProgress(progress);
-        },
       });
 
       const data = await response.json();
@@ -191,6 +173,11 @@ export default function JoinMeeting() {
               {isLoading ? 'Joining...' : 'Join room'}
             </button>
           </div>
+          {isLoading && (
+            <p className="w-full text-center text-xs text-slate-400">
+              Using Render free tier. First request may take some time while services wake up.
+            </p>
+          )}
         </main>
       </div>
 
@@ -223,15 +210,6 @@ export default function JoinMeeting() {
         ]}
       />
 
-      <ServiceWakeupOverlay
-        open={isLoading}
-        attempt={Math.max(1, wakeupProgress.attempt)}
-        maxAttempts={wakeupProgress.maxAttempts}
-        phase={wakeupProgress.phase}
-        title="Joining your room"
-        subtitle="Render free-tier services may need time to wake up before joining."
-        lastError={wakeupProgress.lastError}
-      />
     </div>
   );
 }

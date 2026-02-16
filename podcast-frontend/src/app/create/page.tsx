@@ -5,8 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Crown, Mic, MicOff, Loader2, ArrowLeft, Video, VideoOff } from 'lucide-react';
 import { PreJoinMediaSetup, type MediaDeviceSelection } from '@/components/prejoin-media-setup';
 import { AppPopup } from '@/components/app-popup';
-import { ServiceWakeupOverlay } from '@/components/service-wakeup-overlay';
-import { ServiceWakeupError, requestWithServiceWakeup, type WakeupProgress } from '@/utils/service-wakeup';
+import { ServiceWakeupError, requestWithServiceWakeup } from '@/utils/service-wakeup';
 
 export default function CreateMeeting() {
   const router = useRouter();
@@ -14,13 +13,6 @@ export default function CreateMeeting() {
   const [isLoading, setIsLoading] = useState(false);
   const [showValidationPopup, setShowValidationPopup] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
-  const [wakeupProgress, setWakeupProgress] = useState<WakeupProgress>({
-    attempt: 0,
-    maxAttempts: 8,
-    elapsedMs: 0,
-    phase: 'starting',
-    lastError: null,
-  });
   const [mediaSelection, setMediaSelection] = useState<MediaDeviceSelection>({
     audioDeviceId: null,
     videoDeviceId: null,
@@ -39,13 +31,6 @@ export default function CreateMeeting() {
     const healthUrl = `${apiUrl.replace(/\/api\/?$/, '')}/health`;
 
     setServiceError(null);
-    setWakeupProgress({
-      attempt: 0,
-      maxAttempts: 8,
-      elapsedMs: 0,
-      phase: 'starting',
-      lastError: null,
-    });
     setIsLoading(true);
     try {
       const response = await requestWithServiceWakeup({
@@ -55,13 +40,10 @@ export default function CreateMeeting() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ host_id: trimmed }),
             signal,
-          }),
+        }),
         healthCheckUrl: healthUrl,
         maxAttempts: 8,
         requestTimeoutMs: 15000,
-        onProgress: (progress) => {
-          setWakeupProgress(progress);
-        },
       });
 
       const data = await response.json();
@@ -174,6 +156,11 @@ export default function CreateMeeting() {
               {isLoading ? 'Creating room...' : 'Create room'}
             </button>
           </div>
+          {isLoading && (
+            <p className="w-full text-center text-xs text-slate-400">
+              Using Render free tier. First request may take some time while services wake up.
+            </p>
+          )}
         </main>
       </div>
 
@@ -206,15 +193,6 @@ export default function CreateMeeting() {
         ]}
       />
 
-      <ServiceWakeupOverlay
-        open={isLoading}
-        attempt={Math.max(1, wakeupProgress.attempt)}
-        maxAttempts={wakeupProgress.maxAttempts}
-        phase={wakeupProgress.phase}
-        title="Preparing your studio"
-        subtitle="Render free-tier services may need a moment to wake up before room creation."
-        lastError={wakeupProgress.lastError}
-      />
     </div>
   );
 }
