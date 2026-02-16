@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Users, UserPlus, Loader2, ArrowLeft, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { PreJoinMediaSetup, type MediaDeviceSelection } from '@/components/prejoin-media-setup';
 import { AppPopup } from '@/components/app-popup';
+import { ServiceWakeupOverlay } from '@/components/service-wakeup-overlay';
+import { ServiceWakeupError, requestWithServiceWakeup, type WakeupProgress } from '@/utils/service-wakeup';
 
 export default function JoinMeeting() {
   const router = useRouter();
@@ -12,6 +14,14 @@ export default function JoinMeeting() {
   const [roomCode, setRoomCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showValidationPopup, setShowValidationPopup] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [wakeupProgress, setWakeupProgress] = useState<WakeupProgress>({
+    attempt: 0,
+    maxAttempts: 8,
+    elapsedMs: 0,
+    phase: 'starting',
+    lastError: null,
+  });
   const [mediaSelection, setMediaSelection] = useState<MediaDeviceSelection>({
     audioDeviceId: null,
     videoDeviceId: null,
@@ -28,20 +38,37 @@ export default function JoinMeeting() {
       return;
     }
 
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001/api';
+    const healthUrl = `${apiUrl.replace(/\/api\/?$/, '')}/health`;
+
+    setJoinError(null);
+    setWakeupProgress({
+      attempt: 0,
+      maxAttempts: 8,
+      elapsedMs: 0,
+      phase: 'starting',
+      lastError: null,
+    });
     setIsLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sessions/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          room_code: code,
-          participant_id: name,
-        }),
+      const response = await requestWithServiceWakeup({
+        execute: (signal) =>
+          fetch(`${apiUrl}/sessions/join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              room_code: code,
+              participant_id: name,
+            }),
+            signal,
+          }),
+        healthCheckUrl: healthUrl,
+        maxAttempts: 8,
+        requestTimeoutMs: 15000,
+        onProgress: (progress) => {
+          setWakeupProgress(progress);
+        },
       });
-
-      if (!response.ok) {
-        throw new Error('Invalid room code or session ended');
-      }
 
       const data = await response.json();
 
@@ -63,24 +90,15 @@ export default function JoinMeeting() {
       router.push(`/room/${data.session_id}`);
     } catch (error) {
       console.error('Error joining meeting:', error);
-      const sessionId = `session_${code.toLowerCase()}`;
-
-      sessionStorage.setItem(
-        'podcasthub_user',
-        JSON.stringify({
-          name,
-          role: 'guest',
-          sessionId,
-          roomCode: code,
-          peerName: null,
-          audioDeviceId: mediaSelection.audioDeviceId,
-          videoDeviceId: mediaSelection.videoDeviceId,
-          micEnabled: mediaSelection.micEnabled,
-          cameraEnabled: mediaSelection.cameraEnabled,
-        }),
-      );
-
-      router.push(`/room/${sessionId}`);
+      if (error instanceof ServiceWakeupError) {
+        if (!error.retriable && error.status && error.status < 500) {
+          setJoinError('Room code is invalid or the session has ended. Check with your host and try again.');
+        } else {
+          setJoinError('The backend is waking up on Render free tier. Please wait and retry.');
+        }
+      } else {
+        setJoinError('Unable to join right now. Please check your network and try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -182,6 +200,37 @@ export default function JoinMeeting() {
         title="Missing details"
         message="Enter your name and the room code."
         onClose={() => setShowValidationPopup(false)}
+      />
+
+      <AppPopup
+        open={Boolean(joinError)}
+        tone="warning"
+        title="Join delayed"
+        message={joinError ?? ''}
+        onClose={() => setJoinError(null)}
+        actions={[
+          {
+            label: 'Close',
+            tone: 'secondary',
+            onClick: () => setJoinError(null),
+          },
+          {
+            label: 'Try again',
+            onClick: () => {
+              void handleJoin();
+            },
+          },
+        ]}
+      />
+
+      <ServiceWakeupOverlay
+        open={isLoading}
+        attempt={Math.max(1, wakeupProgress.attempt)}
+        maxAttempts={wakeupProgress.maxAttempts}
+        phase={wakeupProgress.phase}
+        title="Joining your room"
+        subtitle="Render free-tier services may need time to wake up before joining."
+        lastError={wakeupProgress.lastError}
       />
     </div>
   );

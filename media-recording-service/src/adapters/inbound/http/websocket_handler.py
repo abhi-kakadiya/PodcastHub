@@ -19,6 +19,10 @@ active_connections: Dict[str, List[WebSocket]] = {}
 # session_id -> list of {websocket, participant_id, role}
 session_participants: Dict[str, List[Dict]] = {}
 
+# Track the current screen sharer per session
+# session_id -> participant_id
+session_screen_sharer: Dict[str, str] = {}
+
 
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -65,6 +69,26 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "role": "host" if is_host else "guest",
                 }
                 session_participants[session_id].append(participant_info)
+
+                # Sync current screen-share owner for late joiners.
+                active_sharer = session_screen_sharer.get(session_id)
+                if active_sharer:
+                    try:
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "screen-share-started",
+                                    "participantId": active_sharer,
+                                }
+                            )
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Failed to sync screen-share state to %s in session %s: %s",
+                            participant_id,
+                            session_id,
+                            exc,
+                        )
 
                 # Notify other participants
                 await broadcast_to_session(
@@ -116,25 +140,79 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 )
 
             elif message_type == "screen-share-started":
-                # Notify other participants about screen sharing
+                if not participant_id:
+                    logger.warning(
+                        "Ignoring screen-share-started without participantId in session %s",
+                        session_id,
+                    )
+                    continue
+
+                active_sharer = session_screen_sharer.get(session_id)
+                if active_sharer and active_sharer != participant_id:
+                    logger.info(
+                        "Screen-share denied for %s in session %s; active sharer is %s",
+                        participant_id,
+                        session_id,
+                        active_sharer,
+                    )
+                    try:
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "screen-share-denied",
+                                    "participantId": participant_id,
+                                    "activeParticipantId": active_sharer,
+                                    "reason": "Another participant is already sharing their screen.",
+                                }
+                            )
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Failed to send screen-share denial to %s in session %s: %s",
+                            participant_id,
+                            session_id,
+                            exc,
+                        )
+                    continue
+
+                session_screen_sharer[session_id] = participant_id
+
+                # Broadcast authoritative current screen-share owner to everyone.
                 await broadcast_to_session(
                     session_id,
                     {
                         "type": "screen-share-started",
                         "participantId": participant_id,
                     },
-                    exclude=websocket,
                 )
 
             elif message_type == "screen-share-stopped":
-                # Notify other participants screen sharing stopped
+                if not participant_id:
+                    logger.warning(
+                        "Ignoring screen-share-stopped without participantId in session %s",
+                        session_id,
+                    )
+                    continue
+
+                active_sharer = session_screen_sharer.get(session_id)
+                if active_sharer and active_sharer != participant_id:
+                    logger.warning(
+                        "Ignoring screen-share stop from %s in session %s; active sharer is %s",
+                        participant_id,
+                        session_id,
+                        active_sharer,
+                    )
+                    continue
+
+                if active_sharer == participant_id:
+                    del session_screen_sharer[session_id]
+
                 await broadcast_to_session(
                     session_id,
                     {
                         "type": "screen-share-stopped",
                         "participantId": participant_id,
                     },
-                    exclude=websocket,
                 )
 
             elif message_type == "ping":
@@ -189,6 +267,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 if p["websocket"] != websocket
             ]
 
+            if session_screen_sharer.get(session_id) == participant_info["participantId"]:
+                del session_screen_sharer[session_id]
+                await broadcast_to_session(
+                    session_id,
+                    {
+                        "type": "screen-share-stopped",
+                        "participantId": participant_info["participantId"],
+                    },
+                    exclude=websocket,
+                )
+
             # Notify others that participant left
             await broadcast_to_session(
                 session_id,
@@ -204,6 +293,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             del active_connections[session_id]
             if session_id in session_participants:
                 del session_participants[session_id]
+            if session_id in session_screen_sharer:
+                del session_screen_sharer[session_id]
 
         logger.info(f"Cleaned up connection for session: {session_id}")
 

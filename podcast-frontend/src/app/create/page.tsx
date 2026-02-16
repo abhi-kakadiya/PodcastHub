@@ -5,12 +5,22 @@ import { useRouter } from 'next/navigation';
 import { Crown, Mic, MicOff, Loader2, ArrowLeft, Video, VideoOff } from 'lucide-react';
 import { PreJoinMediaSetup, type MediaDeviceSelection } from '@/components/prejoin-media-setup';
 import { AppPopup } from '@/components/app-popup';
+import { ServiceWakeupOverlay } from '@/components/service-wakeup-overlay';
+import { ServiceWakeupError, requestWithServiceWakeup, type WakeupProgress } from '@/utils/service-wakeup';
 
 export default function CreateMeeting() {
   const router = useRouter();
   const [hostName, setHostName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showValidationPopup, setShowValidationPopup] = useState(false);
+  const [serviceError, setServiceError] = useState<string | null>(null);
+  const [wakeupProgress, setWakeupProgress] = useState<WakeupProgress>({
+    attempt: 0,
+    maxAttempts: 8,
+    elapsedMs: 0,
+    phase: 'starting',
+    lastError: null,
+  });
   const [mediaSelection, setMediaSelection] = useState<MediaDeviceSelection>({
     audioDeviceId: null,
     videoDeviceId: null,
@@ -25,17 +35,34 @@ export default function CreateMeeting() {
       return;
     }
 
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001/api';
+    const healthUrl = `${apiUrl.replace(/\/api\/?$/, '')}/health`;
+
+    setServiceError(null);
+    setWakeupProgress({
+      attempt: 0,
+      maxAttempts: 8,
+      elapsedMs: 0,
+      phase: 'starting',
+      lastError: null,
+    });
     setIsLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/sessions/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host_id: trimmed }),
+      const response = await requestWithServiceWakeup({
+        execute: (signal) =>
+          fetch(`${apiUrl}/sessions/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ host_id: trimmed }),
+            signal,
+          }),
+        healthCheckUrl: healthUrl,
+        maxAttempts: 8,
+        requestTimeoutMs: 15000,
+        onProgress: (progress) => {
+          setWakeupProgress(progress);
+        },
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to create session');
-      }
 
       const data = await response.json();
 
@@ -57,25 +84,14 @@ export default function CreateMeeting() {
       router.push(`/room/${data.session_id}`);
     } catch (error) {
       console.error('Error creating meeting:', error);
-      const sessionId = `session_${Date.now()}`;
-      const roomCode = Math.random().toString(36).slice(2, 8).toUpperCase();
-
-      sessionStorage.setItem(
-        'podcasthub_user',
-        JSON.stringify({
-          name: trimmed,
-          role: 'host',
-          sessionId,
-          roomCode,
-          peerName: null,
-          audioDeviceId: mediaSelection.audioDeviceId,
-          videoDeviceId: mediaSelection.videoDeviceId,
-          micEnabled: mediaSelection.micEnabled,
-          cameraEnabled: mediaSelection.cameraEnabled,
-        }),
-      );
-
-      router.push(`/room/${sessionId}`);
+      if (error instanceof ServiceWakeupError) {
+        const message = error.retriable
+          ? 'Our backend is waking up on Render free tier. Please try again in a few seconds.'
+          : error.message || 'Unable to create room right now.';
+        setServiceError(message);
+      } else {
+        setServiceError('Unable to reach the recording service. Please check your network and retry.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -167,6 +183,37 @@ export default function CreateMeeting() {
         title="Missing host name"
         message="Enter your name to start a room."
         onClose={() => setShowValidationPopup(false)}
+      />
+
+      <AppPopup
+        open={Boolean(serviceError)}
+        tone="warning"
+        title="Room creation delayed"
+        message={serviceError ?? ''}
+        onClose={() => setServiceError(null)}
+        actions={[
+          {
+            label: 'Close',
+            tone: 'secondary',
+            onClick: () => setServiceError(null),
+          },
+          {
+            label: 'Try again',
+            onClick: () => {
+              void handleCreate();
+            },
+          },
+        ]}
+      />
+
+      <ServiceWakeupOverlay
+        open={isLoading}
+        attempt={Math.max(1, wakeupProgress.attempt)}
+        maxAttempts={wakeupProgress.maxAttempts}
+        phase={wakeupProgress.phase}
+        title="Preparing your studio"
+        subtitle="Render free-tier services may need a moment to wake up before room creation."
+        lastError={wakeupProgress.lastError}
       />
     </div>
   );

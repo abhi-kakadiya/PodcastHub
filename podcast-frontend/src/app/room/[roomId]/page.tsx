@@ -66,6 +66,7 @@ export default function MeetingRoom() {
   const [screenPan, setScreenPan] = useState({ x: 0, y: 0 });
   const [isPanningScreen, setIsPanningScreen] = useState(false);
   const [screenShareError, setScreenShareError] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null);
   const [manualInviteLink, setManualInviteLink] = useState<string | null>(null);
   const signalHandlerRef = useRef<((message: SignalMessage) => void) | null>(null);
@@ -152,7 +153,7 @@ export default function MeetingRoom() {
     },
     streams.localStream,
     streams.localStream,
-    streams.screenStream,
+    streams.localScreenStream,
   );
 
   const currentRoomCode = userData?.roomCode ?? roomId;
@@ -179,41 +180,54 @@ export default function MeetingRoom() {
   const handleStartRecordingClick = useCallback(async () => {
     try {
       await startRecording();
+      setRecordingError(null);
       broadcastRecordingCommand('start');
     } catch (error) {
       console.error('Failed to start recording:', error);
+      setRecordingError(error instanceof Error ? error.message : 'Unable to start recording right now.');
     }
   }, [startRecording, broadcastRecordingCommand]);
 
   const handlePauseRecordingClick = useCallback(async () => {
     try {
       await pauseRecording();
+      setRecordingError(null);
       broadcastRecordingCommand('pause');
     } catch (error) {
       console.error('Failed to pause recording:', error);
+      setRecordingError(error instanceof Error ? error.message : 'Unable to pause recording right now.');
     }
   }, [pauseRecording, broadcastRecordingCommand]);
 
   const handleResumeRecordingClick = useCallback(async () => {
     try {
       await resumeRecording();
+      setRecordingError(null);
       broadcastRecordingCommand('resume');
     } catch (error) {
       console.error('Failed to resume recording:', error);
+      setRecordingError(error instanceof Error ? error.message : 'Unable to resume recording right now.');
     }
   }, [resumeRecording, broadcastRecordingCommand]);
 
   const handleStopRecordingClick = useCallback(async () => {
     try {
       await stopRecording();
+      setRecordingError(null);
     } catch (error) {
       console.error('Failed to stop recording:', error);
+      setRecordingError(error instanceof Error ? error.message : 'Unable to stop recording right now.');
     } finally {
       broadcastRecordingCommand('stop');
     }
   }, [stopRecording, broadcastRecordingCommand]);
 
   const isHost = userData?.role === 'host';
+  const hasRecordableTrack =
+    Boolean(streams.localStream?.getAudioTracks().length) ||
+    Boolean(streams.localStream?.getVideoTracks().length) ||
+    Boolean(streams.localScreenStream?.getVideoTracks().length);
+  const canStartRecording = hasRecordableTrack;
   const remoteRoleLabel = isHost ? 'Guest' : 'Host';
   const isScreenShareActive = Boolean(streams.screenStream);
   const participants: Array<{
@@ -282,6 +296,12 @@ export default function MeetingRoom() {
             console.warn('Unknown recording-control action received:', action);
         }
 
+        return;
+      }
+
+      if (message.type === 'screen-share-denied') {
+        const reason = typeof message.reason === 'string' ? message.reason : 'Another participant is already sharing their screen.';
+        setScreenShareError(reason);
         return;
       }
 
@@ -953,9 +973,13 @@ export default function MeetingRoom() {
                   {isHost && !isRecording && (
                     <button
                       onClick={handleStartRecordingClick}
-                      disabled={!isConnected}
+                      disabled={!canStartRecording}
                       className="flex h-12 w-12 items-center justify-center rounded-full bg-red-500 text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:bg-red-500/45 disabled:text-white/80"
-                      title="Start recording"
+                      title={
+                        !hasRecordableTrack
+                          ? 'Enable microphone, camera, or screen share to start recording'
+                          : 'Start recording'
+                      }
                     >
                       <Radio className="h-5 w-5" />
                     </button>
@@ -1242,6 +1266,21 @@ export default function MeetingRoom() {
             label: 'Close',
             tone: 'secondary',
             onClick: () => setScreenShareError(null),
+          },
+        ]}
+      />
+
+      <AppPopup
+        open={Boolean(recordingError)}
+        tone="warning"
+        title="Recording issue"
+        message={recordingError ?? ''}
+        onClose={() => setRecordingError(null)}
+        actions={[
+          {
+            label: 'Close',
+            tone: 'secondary',
+            onClick: () => setRecordingError(null),
           },
         ]}
       />

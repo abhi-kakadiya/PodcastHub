@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface RecordingConfig {
   sessionId: string;
@@ -20,6 +20,8 @@ interface UploadProgress {
   video: { uploaded: number; total: number };
   screen: { uploaded: number; total: number };
 }
+
+type TrackType = 'audio' | 'video' | 'screen';
 
 const DEFAULT_CHUNK_INTERVAL_MS = 4000; // 4s chunks keep payloads larger and reduce request overhead
 const envChunkInterval = Number(process.env.NEXT_PUBLIC_CHUNK_INTERVAL_MS);
@@ -73,6 +75,7 @@ export function useRecording(
       needsRestartAfterPause: false,
     },
   });
+  const screenTrackSyncInFlight = useRef(false);
 
   // Calculate SHA-256 checksum
   const calculateChecksum = async (blob: Blob): Promise<string> => {
@@ -273,9 +276,131 @@ export function useRecording(
     [uploadChunk]
   );
 
+  const startScreenTrackWhileRecording = useCallback(
+    async (stream: MediaStream) => {
+      if (screenTrackSyncInFlight.current) {
+        return;
+      }
+
+      const existing = recorders.current.screen.recorder;
+      if (existing && existing.state !== 'inactive') {
+        return;
+      }
+
+      if (stream.getVideoTracks().length === 0) {
+        return;
+      }
+
+      screenTrackSyncInFlight.current = true;
+      try {
+        const response = await fetch(`${apiUrl}/recordings/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            participant_id: participantId,
+            track_types: ['screen'],
+          }),
+        });
+
+        if (!response.ok) {
+          let detail = 'Failed to start screen recording track';
+          try {
+            const error = await response.json();
+            detail = error.detail ?? detail;
+          } catch {
+            // Ignore JSON parse errors and keep fallback message.
+          }
+          throw new Error(detail);
+        }
+
+        const data = await response.json();
+        const screenRecordingId = data.recording_ids?.screen;
+        if (!screenRecordingId) {
+          throw new Error('Screen recording ID was not returned by the backend.');
+        }
+
+        const recorder = createRecorder('screen', stream, screenRecordingId);
+        if (!recorder) {
+          // Stop orphaned backend track when local recorder cannot be created.
+          await fetch(`${apiUrl}/recordings/${screenRecordingId}/stop`, { method: 'POST' });
+          throw new Error('Unable to create a local screen recorder for this browser.');
+        }
+
+        recorders.current.screen = {
+          recorder,
+          recordingId: screenRecordingId,
+          sequence: 0,
+          uploadedChunks: 0,
+          totalChunks: 0,
+          needsRestartAfterPause: false,
+        };
+        setUploadProgress((prev) => ({
+          ...prev,
+          screen: { uploaded: 0, total: 0 },
+        }));
+        recorder.start(CHUNK_INTERVAL);
+        console.log('Screen recorder started dynamically during active recording');
+      } catch (error) {
+        console.error('Failed to start dynamic screen recording track:', error);
+      } finally {
+        screenTrackSyncInFlight.current = false;
+      }
+    },
+    [apiUrl, createRecorder, participantId, sessionId]
+  );
+
+  const stopScreenTrackWhileRecording = useCallback(async () => {
+    if (screenTrackSyncInFlight.current) {
+      return;
+    }
+
+    const trackState = recorders.current.screen;
+    if (!trackState.recorder && !trackState.recordingId) {
+      return;
+    }
+
+    screenTrackSyncInFlight.current = true;
+    try {
+      if (trackState.recorder && trackState.recorder.state !== 'inactive') {
+        trackState.recorder.stop();
+      }
+
+      // Allow final `ondataavailable` flush before stopping server-side track.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      if (trackState.recordingId) {
+        await fetch(`${apiUrl}/recordings/${trackState.recordingId}/stop`, { method: 'POST' });
+      }
+
+      recorders.current.screen.recorder = null;
+      recorders.current.screen.recordingId = null;
+      recorders.current.screen.needsRestartAfterPause = false;
+      console.log('Screen recorder stopped dynamically during active recording');
+    } catch (error) {
+      console.error('Failed to stop dynamic screen recording track:', error);
+    } finally {
+      screenTrackSyncInFlight.current = false;
+    }
+  }, [apiUrl]);
+
   // Start recording
   const startRecording = useCallback(async () => {
     try {
+      const availableTracks: Record<TrackType, boolean> = {
+        audio: Boolean(audioStream && audioStream.getAudioTracks().length > 0),
+        video: Boolean(videoStream && videoStream.getVideoTracks().length > 0),
+        screen: Boolean(screenStream && screenStream.getVideoTracks().length > 0),
+      };
+
+      const trackTypes = (Object.entries(availableTracks) as [TrackType, boolean][])
+        .filter(([, isAvailable]) => isAvailable)
+        .map(([track]) => track);
+
+      if (trackTypes.length === 0) {
+        throw new Error('No media track is available to record. Enable microphone, camera, or screen share first.');
+      }
+
       console.log('Starting recording with streams:', {
         audio: !!audioStream,
         video: !!videoStream,
@@ -289,23 +414,33 @@ export function useRecording(
         body: JSON.stringify({
           session_id: sessionId,
           participant_id: participantId,
-          track_types: [
-            audioStream ? 'audio' : null,
-            videoStream ? 'video' : null,
-            screenStream ? 'screen' : null,
-          ].filter(Boolean),
+          track_types: trackTypes,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start recording');
+        let detail = 'Failed to start recording';
+        try {
+          const error = await response.json();
+          detail = error.detail ?? detail;
+        } catch {
+          // Ignore JSON parse errors and use fallback message.
+        }
+        throw new Error(detail);
       }
 
       const data = await response.json();
       const recordingIds = data.recording_ids;
+      let startedRecorderCount = 0;
+
+      setUploadProgress({
+        audio: { uploaded: 0, total: 0 },
+        video: { uploaded: 0, total: 0 },
+        screen: { uploaded: 0, total: 0 },
+      });
 
       // Create and start recorders for each active stream
-      if (audioStream && recordingIds.audio) {
+      if (availableTracks.audio && audioStream && recordingIds.audio) {
         const recorder = createRecorder('audio', audioStream, recordingIds.audio);
         if (recorder) {
           recorders.current.audio.recorder = recorder;
@@ -315,11 +450,12 @@ export function useRecording(
           recorders.current.audio.totalChunks = 0;
           recorders.current.audio.needsRestartAfterPause = false;
           recorder.start(CHUNK_INTERVAL);
+          startedRecorderCount++;
           console.log('OK Audio recorder started');
         }
       }
 
-      if (videoStream && recordingIds.video) {
+      if (availableTracks.video && videoStream && recordingIds.video) {
         const recorder = createRecorder('video', videoStream, recordingIds.video);
         if (recorder) {
           recorders.current.video.recorder = recorder;
@@ -329,11 +465,12 @@ export function useRecording(
           recorders.current.video.totalChunks = 0;
           recorders.current.video.needsRestartAfterPause = false;
           recorder.start(CHUNK_INTERVAL);
+          startedRecorderCount++;
           console.log('OK Video recorder started');
         }
       }
 
-      if (screenStream && recordingIds.screen) {
+      if (availableTracks.screen && screenStream && recordingIds.screen) {
         const recorder = createRecorder('screen', screenStream, recordingIds.screen);
         if (recorder) {
           recorders.current.screen.recorder = recorder;
@@ -343,17 +480,70 @@ export function useRecording(
           recorders.current.screen.totalChunks = 0;
           recorders.current.screen.needsRestartAfterPause = false;
           recorder.start(CHUNK_INTERVAL);
+          startedRecorderCount++;
           console.log('Screen recorder started');
         }
       }
 
+      if (startedRecorderCount === 0) {
+        // If no browser recorder started, ensure backend state is cleaned up.
+        try {
+          await fetch(`${apiUrl}/recordings/stop`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              session_id: sessionId,
+              participant_id: participantId,
+            }),
+          });
+        } catch (cleanupError) {
+          console.warn('Failed to clean up backend recording session after local start failure', cleanupError);
+        }
+
+        throw new Error('No compatible recorder could be started for available media tracks on this browser.');
+      }
+
       setIsRecording(true);
+      setIsPaused(false);
       console.log('Recording started with real-time upload');
     } catch (error) {
+      setIsRecording(false);
+      setIsPaused(false);
       console.error('Error starting recording:', error);
       throw error;
     }
   }, [sessionId, participantId, apiUrl, audioStream, videoStream, screenStream, createRecorder]);
+
+  useEffect(() => {
+    if (!isRecording || isPaused) {
+      return;
+    }
+
+    const hasScreenTrack = Boolean(screenStream && screenStream.getVideoTracks().length > 0);
+    const screenRecorder = recorders.current.screen.recorder;
+    const hasActiveScreenRecorder = Boolean(screenRecorder && screenRecorder.state !== 'inactive');
+    const existingRecordingId = recorders.current.screen.recordingId;
+
+    if (hasScreenTrack && screenStream && !hasActiveScreenRecorder && existingRecordingId) {
+      const recorder = createRecorder('screen', screenStream, existingRecordingId);
+      if (recorder) {
+        recorders.current.screen.recorder = recorder;
+        recorders.current.screen.needsRestartAfterPause = false;
+        recorder.start(CHUNK_INTERVAL);
+        console.log('Recovered inactive screen recorder during active recording');
+      }
+      return;
+    }
+
+    if (hasScreenTrack && screenStream && !hasActiveScreenRecorder && !existingRecordingId) {
+      void startScreenTrackWhileRecording(screenStream);
+      return;
+    }
+
+    if (!hasScreenTrack && (hasActiveScreenRecorder || existingRecordingId)) {
+      void stopScreenTrackWhileRecording();
+    }
+  }, [isRecording, isPaused, screenStream, createRecorder, startScreenTrackWhileRecording, stopScreenTrackWhileRecording]);
 
   // Pause recording
   const pauseRecording = useCallback(async () => {
@@ -520,6 +710,7 @@ export function useRecording(
           needsRestartAfterPause: false,
         },
       };
+      screenTrackSyncInFlight.current = false;
 
       console.log('Recording stopped');
     } catch (error) {

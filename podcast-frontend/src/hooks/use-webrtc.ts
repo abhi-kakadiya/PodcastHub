@@ -11,6 +11,8 @@ export type SignalMessage = {
   processing_status?: string;
   participantId?: string;
   participant_id?: string;
+  activeParticipantId?: string;
+  reason?: string;
   offer?: RTCSessionDescriptionInit;
   answer?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
@@ -47,6 +49,8 @@ interface MediaStreams {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   screenStream: MediaStream | null;
+  localScreenStream: MediaStream | null;
+  remoteScreenStream: MediaStream | null;
 }
 
 interface MediaControls {
@@ -75,13 +79,16 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     localStream: null,
     remoteStream: null,
     screenStream: null,
+    localScreenStream: null,
+    remoteScreenStream: null,
   });
 
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [canScreenShare, setCanScreenShare] = useState(true);
-  const [screenShareSupportMessage, setScreenShareSupportMessage] = useState<string | null>(null);
+  const [baseCanScreenShare, setBaseCanScreenShare] = useState(true);
+  const [baseScreenShareSupportMessage, setBaseScreenShareSupportMessage] = useState<string | null>(null);
+  const [activeScreenSharerId, setActiveScreenSharerId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   const peerConnection = useRef<RTCPeerConnection | null>(null);
@@ -172,8 +179,8 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
 
   useEffect(() => {
     const next = evaluateScreenShareSupport();
-    setCanScreenShare(next.supported);
-    setScreenShareSupportMessage(next.message);
+    setBaseCanScreenShare(next.supported);
+    setBaseScreenShareSupportMessage(next.message);
   }, [evaluateScreenShareSupport]);
 
   // Initialize local media stream
@@ -305,9 +312,13 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     }
 
     try {
+      if (activeScreenSharerId && activeScreenSharerId !== participantId) {
+        throw new Error('Another participant is already sharing their screen.');
+      }
+
       const support = evaluateScreenShareSupport();
-      setCanScreenShare(support.supported);
-      setScreenShareSupportMessage(support.message);
+      setBaseCanScreenShare(support.supported);
+      setBaseScreenShareSupportMessage(support.message);
 
       if (!support.supported) {
         const err = new Error(support.message ?? 'Screen sharing is not available on this device.');
@@ -335,7 +346,8 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
       };
 
       localScreenStreamRef.current = screenStream;
-      setStreams((prev) => ({ ...prev, screenStream }));
+      setStreams((prev) => ({ ...prev, localScreenStream: screenStream, screenStream }));
+      setActiveScreenSharerId(participantId);
       setIsScreenSharing(true);
 
       if (peerConnection.current) {
@@ -360,7 +372,7 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
       console.error('Error starting screen share:', error);
       throw error;
     }
-  }, [evaluateScreenShareSupport, isScreenSharing, participantId, sessionId]);
+  }, [activeScreenSharerId, evaluateScreenShareSupport, isScreenSharing, participantId, sessionId]);
 
   // Stop screen sharing
   const stopScreenShare = useCallback(() => {
@@ -381,13 +393,11 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     }
 
     setStreams((prev) => {
-      if (!prev.screenStream) {
-        return prev;
-      }
-      return { ...prev, screenStream: null };
+      const nextDisplayStream = prev.remoteScreenStream ?? null;
+      return { ...prev, localScreenStream: null, screenStream: nextDisplayStream };
     });
     setIsScreenSharing(false);
-    remoteScreenStreamIdRef.current = null;
+    setActiveScreenSharerId((current) => (current === participantId ? null : current));
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
@@ -516,26 +526,39 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
         setStreams((prev) => {
           const hasRemoteStream = Boolean(prev.remoteStream);
           const remoteStreamChanged = hasRemoteStream && prev.remoteStream?.id !== incomingStream.id;
-          const isKnownScreen = prev.screenStream?.id === incomingStream.id;
+          const isKnownScreen =
+            prev.remoteScreenStream?.id === incomingStream.id || prev.localScreenStream?.id === incomingStream.id;
           const shouldTreatAsScreen = looksLikeScreen || (remoteStreamChanged && !isKnownScreen);
 
           if (shouldTreatAsScreen) {
             remoteScreenStreamIdRef.current = incomingStream.id;
             event.track.onended = () => {
               setStreams((current) => {
-                if (current.screenStream && current.screenStream.id === incomingStream.id) {
-                  return { ...current, screenStream: null };
+                const hadRemoteScreen = current.remoteScreenStream?.id === incomingStream.id;
+                const displayWasRemote = current.screenStream?.id === incomingStream.id;
+                if (!hadRemoteScreen && !displayWasRemote) {
+                  return current;
                 }
-                return current;
+
+                return {
+                  ...current,
+                  remoteScreenStream: hadRemoteScreen ? null : current.remoteScreenStream,
+                  screenStream: current.localScreenStream ?? (displayWasRemote ? null : current.screenStream),
+                };
               });
               remoteScreenStreamIdRef.current = null;
+              setActiveScreenSharerId((current) => (current && current !== participantId ? null : current));
             };
 
             if (isKnownScreen) {
               return prev;
             }
 
-            return { ...prev, screenStream: incomingStream };
+            return {
+              ...prev,
+              remoteScreenStream: incomingStream,
+              screenStream: prev.localScreenStream ?? incomingStream,
+            };
           }
 
           if (prev.remoteStream && prev.remoteStream.id === incomingStream.id) {
@@ -778,8 +801,14 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
               break;
 
             case 'participant-left':
-              console.log('👋 Remote participant disconnected');
-              setStreams((prev) => ({ ...prev, remoteStream: null }));
+              console.log('Remote participant disconnected');
+              setStreams((prev) => ({
+                ...prev,
+                remoteStream: null,
+                remoteScreenStream: null,
+                screenStream: prev.localScreenStream ?? null,
+              }));
+              setActiveScreenSharerId((current) => (current && current !== participantId ? null : current));
               setIsConnected(false);
 
               if (peerConnection.current) {
@@ -790,18 +819,57 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
               break;
 
             case 'screen-share-started':
-              console.log('🖥️ Remote screen share started');
+              console.log('Remote screen share started');
+              {
+                const sharerId = (message.participantId ?? message.participant_id) as string | undefined;
+                if (sharerId) {
+                  setActiveScreenSharerId(sharerId);
+                  if (sharerId !== participantId && localScreenStreamRef.current) {
+                    stopScreenShareRef.current();
+                  }
+                }
+              }
               break;
 
             case 'screen-share-stopped':
-              console.log('🖥️ Remote screen share stopped');
-              remoteScreenStreamIdRef.current = null;
-              setStreams((prev) => {
-                if (!prev.screenStream) {
-                  return prev;
+              console.log('Remote screen share stopped');
+              {
+                const stoppedBy = (message.participantId ?? message.participant_id) as string | undefined;
+                remoteScreenStreamIdRef.current = null;
+                setStreams((prev) => {
+                  const isRemoteStopped =
+                    !stoppedBy || prev.remoteScreenStream === null || stoppedBy !== participantId;
+                  if (!isRemoteStopped) {
+                    return prev;
+                  }
+
+                  const displayWasRemote =
+                    prev.screenStream !== null &&
+                    prev.localScreenStream?.id !== prev.screenStream.id &&
+                    prev.remoteScreenStream?.id === prev.screenStream.id;
+
+                  return {
+                    ...prev,
+                    remoteScreenStream: null,
+                    screenStream: prev.localScreenStream ?? (displayWasRemote ? null : prev.screenStream),
+                  };
+                });
+                setActiveScreenSharerId((current) => (current === stoppedBy ? null : current));
+              }
+              break;
+
+            case 'screen-share-denied':
+              console.warn('Screen share denied:', message.reason);
+              {
+                const activeParticipantId = message.activeParticipantId as string | undefined;
+                if (activeParticipantId) {
+                  setActiveScreenSharerId(activeParticipantId);
                 }
-                return { ...prev, screenStream: null };
-              });
+                if (localScreenStreamRef.current) {
+                  stopScreenShareRef.current();
+                }
+              }
+              onSignalMessage?.(message);
               break;
 
             case 'recording-status':
@@ -879,9 +947,19 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
         });
       }
 
-      setStreams((prev) => {
-        prev.screenStream?.getTracks().forEach((track) => track.stop());
-        return prev;
+      if (localScreenStreamRef.current) {
+        localScreenStreamRef.current.getTracks().forEach((track) => {
+          track.stop();
+        });
+        localScreenStreamRef.current = null;
+      }
+
+      setStreams({
+        localStream: null,
+        remoteStream: null,
+        screenStream: null,
+        localScreenStream: null,
+        remoteScreenStream: null,
       });
 
       if (peerConnection.current) {
@@ -889,6 +967,16 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
       }
     };
   }, [sessionId, participantId, isHost, onSignalMessage, createPeerConnection, initializeLocalStream, sendSignal, isPolite]);
+
+  const blockedByRemoteSharer = Boolean(
+    activeScreenSharerId && activeScreenSharerId !== participantId && !isScreenSharing,
+  );
+  const canScreenShare = baseCanScreenShare && !blockedByRemoteSharer;
+  const screenShareSupportMessage = !baseCanScreenShare
+    ? baseScreenShareSupportMessage
+    : blockedByRemoteSharer
+      ? 'Another participant is already sharing their screen.'
+      : null;
 
   const controls: MediaControls = {
     isMicOn,
@@ -909,3 +997,4 @@ export function useWebRTC(config: WebRTCConfig): UseWebRTCResult {
     sendSignal,
   };
 }
+
